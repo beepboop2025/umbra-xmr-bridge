@@ -1,0 +1,60 @@
+groups:
+  - name: bridge_alerts
+    rules:
+      - alert: HighOrderFailureRate
+        expr: rate(bridge_orders_failed_total[5m]) / rate(bridge_orders_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Order failure rate above 5%"
+          description: "{{ $value | humanizePercentage }} of orders are failing"
+
+      - alert: APILatencyHigh
+        expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p99 latency above 5 seconds"
+          description: "p99 latency is {{ $value }}s"
+
+      - alert: DepositMonitorLag
+        expr: time() - bridge_last_deposit_check_timestamp > 120
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Deposit monitor hasn't run in 2+ minutes"
+
+      - alert: RateSourcesDown
+        expr: bridge_rate_source_healthy == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "All rate sources are down"
+
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes > 1e9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API process using >1GB memory"
+
+      - alert: RedisConnectionFailed
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is unreachable"
+
+      - alert: PostgresConnectionFailed
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is unreachable"

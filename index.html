@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="description" content="Bridge Monero (XMR) and TON seamlessly — secure, fast, decentralized" />
+  <meta name="theme-color" content="#0A0E17" />
+  <title>XMR ↔ TON Bridge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+
+<body>
+  <div id="app">
+    <!-- Animated background -->
+    <div class="bg-effects" aria-hidden="true">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
+      <div class="particles" id="particles"></div>
+      <div class="grid-overlay"></div>
+    </div>
+
+    <!-- Network status bar -->
+    <div class="network-bar hidden" id="network-bar" role="alert">
+      <span class="network-dot"></span>
+      <span>Connection lost — rates may be outdated</span>
+    </div>
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-mark">
+        <div class="logo-icon-wrap">
+          <img src="/monero.svg" alt="" class="logo-coin logo-coin-left" />
+          <div class="logo-bridge-line"></div>
+          <img src="/ton.svg" alt="" class="logo-coin logo-coin-right" />
+        </div>
+        <div class="logo-text">
+          <h1>XMR ↔ TON</h1>
+          <p class="subtitle">Cross-chain Bridge</p>
+        </div>
+      </div>
+      <button class="settings-btn" id="settings-btn" title="Settings" aria-label="Settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path
+            d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42">
+          </path>
+        </svg>
+      </button>
+    </header>
+
+    <!-- Main content -->
+    <main id="main-content" role="main">
+
+      <!-- ===== BRIDGE CARD ===== -->
+      <section class="bridge-card glass-card" id="bridge-card" aria-label="Bridge form">
+        <!-- Direction Toggle -->
+        <div class="direction-toggle" id="direction-toggle" role="radiogroup" aria-label="Bridge direction">
+          <button class="toggle-btn active" data-dir="xmr-ton" id="btn-xmr-ton" role="radio" aria-checked="true">
+            <img src="/monero.svg" alt="XMR" class="coin-icon" />
+            <span class="arrow-icon">→</span>
+            <img src="/ton.svg" alt="TON" class="coin-icon" />
+          </button>
+          <button class="toggle-btn" data-dir="ton-xmr" id="btn-ton-xmr" role="radio" aria-checked="false">
+            <img src="/ton.svg" alt="TON" class="coin-icon" />
+            <span class="arrow-icon">→</span>
+            <img src="/monero.svg" alt="XMR" class="coin-icon" />
+          </button>
+        </div>
+
+        <!-- FROM section -->
+        <div class="swap-section" id="from-section">
+          <div class="section-label">
+            <span>You Send</span>
+            <span class="balance-hint" id="balance-hint"></span>
+          </div>
+          <div class="input-row" id="from-input-row">
+            <input type="number" id="from-amount" class="amount-input" placeholder="0.00" min="0" step="any"
+              inputmode="decimal" autocomplete="off" aria-label="Amount to send" />
+            <div class="coin-badge" id="from-coin">
+              <img src="/monero.svg" alt="XMR" class="coin-icon-sm" />
+              <span>XMR</span>
+            </div>
+          </div>
+          <div class="input-hint" id="amount-hint"></div>
+        </div>
+
+        <!-- Swap Arrow Button -->
+        <div class="swap-arrow-container">
+          <button class="swap-arrow-btn" id="swap-direction-btn" title="Swap direction"
+            aria-label="Swap bridge direction">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- TO section -->
+        <div class="swap-section" id="to-section">
+          <div class="section-label">
+            <span>You Receive</span>
+            <span class="rate-info" id="rate-info"></span>
+          </div>
+          <div class="input-row readonly" id="to-input-row">
+            <input type="text" id="to-amount" class="amount-input" placeholder="0.00" readonly
+              aria-label="Amount to receive" />
+            <div class="coin-badge" id="to-coin">
+              <img src="/ton.svg" alt="TON" class="coin-icon-sm" />
+              <span>TON</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Rate Bar with Sparkline -->
+        <div class="rate-bar glass-inner" id="rate-bar">
+          <div class="rate-left">
+            <span class="rate-label">Rate</span>
+            <span class="rate-value" id="rate-value">1 XMR ≈ — TON</span>
+          </div>
+          <canvas class="sparkline" id="sparkline" width="80" height="28" aria-label="Price chart"></canvas>
+        </div>
+
+        <!-- Address Input -->
+        <div class="address-section" id="address-section">
+          <label class="section-label" for="dest-address">
+            <span id="dest-label">Destination TON Address</span>
+          </label>
+          <div class="address-input-wrapper" id="address-wrapper">
+            <input type="text" id="dest-address" class="address-input" placeholder="Enter your TON wallet address"
+              spellcheck="false" autocomplete="off" aria-describedby="address-error" />
+            <button class="icon-btn" id="paste-btn" title="Paste" aria-label="Paste from clipboard">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            </button>
+          </div>
+          <p class="field-error" id="address-error" role="alert"></p>
+        </div>
+
+        <!-- Fee Breakdown -->
+        <div class="fee-breakdown glass-inner" id="fee-section">
+          <div class="fee-row">
+            <span>Network Fee</span>
+            <span id="network-fee">~0.0001 XMR</span>
+          </div>
+          <div class="fee-row">
+            <span>Bridge Fee (0.3%)</span>
+            <span id="bridge-fee">—</span>
+          </div>
+          <div class="fee-row">
+            <span>Min. Received</span>
+            <span id="min-received">—</span>
+          </div>
+          <div class="fee-row">
+            <span>Slippage Tolerance</span>
+            <span class="slippage-value" id="slippage-display">1.0%</span>
+          </div>
+          <div class="fee-row total">
+            <span>Estimated Time</span>
+            <span id="est-time">~15 min</span>
+          </div>
+        </div>
+
+        <!-- Bridge Button -->
+        <button class="bridge-btn" id="bridge-btn" disabled aria-label="Start bridge">
+          <span class="btn-text" id="btn-text">Enter an amount</span>
+          <span class="btn-loader" id="btn-loader" aria-hidden="true"></span>
+        </button>
+
+        <!-- Bridge Powered By -->
+        <p class="powered-by">Secured by atomic swaps · Trustless</p>
+      </section>
+
+      <!-- ===== CONFIRMATION MODAL ===== -->
+      <div class="modal-overlay hidden" id="confirm-modal" role="dialog" aria-modal="true" aria-label="Confirm bridge">
+        <div class="modal-card glass-card">
+          <h2 class="modal-title">Confirm Bridge</h2>
+          <div class="confirm-summary" id="confirm-summary">
+            <!-- Filled dynamically -->
+          </div>
+          <div class="confirm-details glass-inner" id="confirm-details">
+            <!-- Filled dynamically -->
+          </div>
+          <p class="confirm-warning">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <circle cx="12" cy="17" r="1"></circle>
+            </svg>
+            Rates may change. You will receive at least the minimum amount shown, or the transaction will be refunded.
+          </p>
+          <div class="modal-actions">
+            <button class="bridge-btn secondary" id="confirm-cancel">Cancel</button>
+            <button class="bridge-btn" id="confirm-proceed">Confirm Bridge</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== TRANSACTION STATUS ===== -->
+      <section class="tx-status-card glass-card hidden" id="tx-status-card" aria-label="Transaction status">
+        <div class="tx-header">
+          <h2>Bridge Transaction</h2>
+          <span class="tx-id-badge" id="tx-id"></span>
+        </div>
+
+        <!-- Timer -->
+        <div class="tx-timer" id="tx-timer">
+          <span class="timer-label">Estimated time remaining</span>
+          <span class="timer-value" id="timer-value">—</span>
+        </div>
+
+        <!-- Progress Steps -->
+        <div class="tx-progress" id="tx-progress">
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%"></div>
+          </div>
+          <div class="progress-steps" id="progress-steps">
+            <!-- Steps rendered dynamically -->
+          </div>
+        </div>
+
+        <!-- Deposit Box -->
+        <div class="deposit-info glass-inner" id="deposit-info">
+          <p class="deposit-label">Send exactly <strong id="deposit-amount"></strong> to:</p>
+          <div class="deposit-address-box">
+            <code id="deposit-address"></code>
+            <button class="icon-btn" id="copy-deposit-btn" title="Copy address" aria-label="Copy deposit address">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            </button>
+          </div>
+          <p class="deposit-warning">Only send <span id="deposit-currency">XMR</span> to this address</p>
+        </div>
+
+        <!-- TX Actions -->
+        <div class="tx-actions">
+          <button class="bridge-btn secondary" id="new-bridge-btn" aria-label="Start new bridge">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="1 4 1 10 7 10"></polyline>
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+            </svg>
+            New Bridge
+          </button>
+        </div>
+      </section>
+
+      <!-- ===== HISTORY ===== -->
+      <section class="history-section" id="history-section" aria-label="Transaction history">
+        <button class="section-header" id="history-toggle" aria-expanded="false">
+          <h3>Recent Transactions</h3>
+          <div class="header-right">
+            <span class="history-count" id="history-count"></span>
+            <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </div>
+        </button>
+        <div class="history-list" id="history-list" role="list">
+          <div class="empty-state" id="empty-history">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+              opacity="0.3">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <p>No transactions yet</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Settings Panel -->
+    <div class="modal-overlay hidden" id="settings-modal" role="dialog" aria-modal="true" aria-label="Settings">
+      <div class="modal-card glass-card settings-panel">
+        <div class="modal-header">
+          <h2>Settings</h2>
+          <button class="icon-btn" id="settings-close" aria-label="Close settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">Slippage Tolerance</label>
+          <div class="slippage-options" id="slippage-options">
+            <button class="slippage-btn" data-val="0.5">0.5%</button>
+            <button class="slippage-btn active" data-val="1">1.0%</button>
+            <button class="slippage-btn" data-val="2">2.0%</button>
+            <div class="slippage-custom">
+              <input type="number" id="slippage-custom" class="slippage-input" placeholder="Custom" min="0.1" max="50"
+                step="0.1" />
+              <span>%</span>
+            </div>
+          </div>
+          <p class="setting-hint">Your transaction will revert if the rate changes unfavorably by more than this
+            percentage.</p>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">About</label>
+          <div class="about-info glass-inner">
+            <p><strong>XMR ↔ TON Bridge</strong> v2.0</p>
+            <p>Trustless cross-chain bridge using atomic swap technology. Your funds never touch a centralized server.
+            </p>
+          </div>
+        </div>
+
+        <button class="bridge-btn secondary" id="clear-history-btn">Clear History</button>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>Powered by atomic swaps · Trustless · v2.0</p>
+    </footer>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>

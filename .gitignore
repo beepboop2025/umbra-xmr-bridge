@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build outputs
+target/
+dist/
+.next/
+out/
+build/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Data volumes
+pgdata/
+redisdata/
+promdata/
+grafanadata/
+
+# OS
+Thumbs.db
+
+# Rust
+*.d
+*.rlib
+
+# Package locks (keep root, ignore nested)
+website/package-lock.json
+bot/poetry.lock
