@@ -35,12 +35,12 @@ async fn main() {
     // Tracing
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "xmr_bridge=debug,tower_http=debug".into()))
+            .unwrap_or_else(|_| "umbra=debug,tower_http=debug".into()))
         .with(tracing_subscriber::fmt::layer())
         .init();
 
     let config = Config::from_env();
-    tracing::info!("Starting XMR Bridge API on {}", config.addr());
+    tracing::info!("Starting Umbra API on {}", config.addr());
 
     // Connect to backing services
     let db_pool = db::connect(&config).await;

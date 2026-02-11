@@ -1,17 +1,17 @@
 version: "3.9"
 
 services:
-  # ---- Backend API (Rust — single binary, no Celery needed) ----
+  # ---- Umbra API (Rust — single binary) ----
   api:
     build: ./backend
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgres://bridge:bridge@postgres:5432/xmr_ton_bridge
+      - DATABASE_URL=postgres://umbra:umbra@postgres:5432/umbra
       - REDIS_URL=redis://redis:6379
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production-64-chars-minimum-random-string}
       - CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:5173
-      - RUST_LOG=xmr_bridge=info,tower_http=info
+      - RUST_LOG=umbra=info,tower_http=info
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - MONERO_RPC_URL=${MONERO_RPC_URL:-http://monero-wallet-rpc:18082/json_rpc}
       - TON_API_URL=${TON_API_URL:-https://toncenter.com/api/v2}
@@ -66,15 +66,15 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: bridge
-      POSTGRES_PASSWORD: bridge
-      POSTGRES_DB: xmr_ton_bridge
+      POSTGRES_USER: umbra
+      POSTGRES_PASSWORD: umbra
+      POSTGRES_DB: umbra
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bridge"]
+      test: ["CMD-SHELL", "pg_isready -U umbra"]
       interval: 10s
       timeout: 5s
       retries: 5
