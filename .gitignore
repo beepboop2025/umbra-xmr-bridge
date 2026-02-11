@@ -44,3 +44,4 @@ Thumbs.db
 # Package locks (keep root, ignore nested)
 website/package-lock.json
 bot/poetry.lock
+.github/workflows/
