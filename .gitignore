@@ -37,6 +37,10 @@ grafanadata/
 # OS
 Thumbs.db
 
+# Runtime
+tunnel.log
+.tunnel.pid
+
 # Rust
 *.d
 *.rlib
