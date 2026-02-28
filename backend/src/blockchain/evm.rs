@@ -171,6 +171,18 @@ impl EvmClient {
         Ok(U256String(hex.to_string()))
     }
 
+    /// Perform a raw JSON-RPC call, returning the `result` field.
+    ///
+    /// Exposed for use by higher-level services (e.g. [`EvmRpcRouter`]) that
+    /// need to issue calls not covered by the typed methods above.
+    pub async fn raw_rpc_call(
+        &self,
+        method: &str,
+        params: Vec<serde_json::Value>,
+    ) -> Result<Value> {
+        self.rpc_call(method, params).await
+    }
+
     // -----------------------------------------------------------------------
     // Private helper
     // -----------------------------------------------------------------------

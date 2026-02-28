@@ -91,10 +91,10 @@ async fn poll_deposits(state: &AppState) -> anyhow::Result<()> {
 ///
 /// Returns `Ok(Some(tx_hash))` when a deposit is found, `Ok(None)` otherwise.
 async fn check_deposit(
-    _state: &AppState,
+    state: &AppState,
     order: &BridgeOrder,
 ) -> anyhow::Result<Option<String>> {
-    let _deposit_address = match &order.deposit_address {
+    let deposit_address = match &order.deposit_address {
         Some(addr) => addr.as_str(),
         None => {
             tracing::warn!(order_id = %order.order_id, "no deposit_address set");
@@ -102,41 +102,130 @@ async fn check_deposit(
         }
     };
 
+    let expected_amount = order.from_amount;
+
     match order.source_chain.to_uppercase().as_str() {
         "XMR" => {
-            // TODO: Call monero_rpc `get_transfers` for deposit_address.
-            //       Parse response for incoming transfer matching from_amount.
-            //       Return tx_hash if found.
-            tracing::debug!(order_id = %order.order_id, "XMR deposit check (stub)");
+            // Query Monero wallet-RPC for incoming transfers to the deposit subaddress.
+            // The deposit_address maps to a specific subaddress index stored in order metadata.
+            let subaddr_index: u32 = order
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("subaddr_index"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
+
+            let transfers = state.monero_rpc.get_transfers(0, &[subaddr_index]).await?;
+            for tx in &transfers {
+                // Monero amounts are in piconero (1 XMR = 1e12 piconero)
+                let xmr_amount = rust_decimal::Decimal::new(tx.amount as i64, 12);
+                if xmr_amount >= expected_amount && tx.address == deposit_address {
+                    tracing::info!(
+                        order_id = %order.order_id,
+                        tx_hash = %tx.txid,
+                        amount = %xmr_amount,
+                        confirmations = tx.confirmations,
+                        "XMR deposit found"
+                    );
+                    return Ok(Some(tx.txid.clone()));
+                }
+            }
             Ok(None)
         }
         "BTC" => {
-            // TODO: Call bitcoin_rpc `listtransactions` / `listunspent`
-            //       for the deposit address.
-            tracing::debug!(order_id = %order.order_id, "BTC deposit check (stub)");
+            // Query Bitcoin Core RPC for unspent outputs at the deposit address.
+            let utxos = state.bitcoin_rpc.list_unspent(0, 9999, &[deposit_address]).await?;
+            for utxo in &utxos {
+                let btc_amount = rust_decimal::Decimal::from_str_exact(&utxo.amount.to_string())
+                    .unwrap_or_default();
+                if btc_amount >= expected_amount {
+                    tracing::info!(
+                        order_id = %order.order_id,
+                        tx_hash = %utxo.txid,
+                        amount = %btc_amount,
+                        "BTC deposit found"
+                    );
+                    return Ok(Some(utxo.txid.clone()));
+                }
+            }
             Ok(None)
         }
         "ETH" | "ARB" | "BASE" | "USDC" | "USDT" => {
-            // TODO: Call EVM JSON-RPC `eth_getBalance` or check ERC-20
-            //       `Transfer` events to deposit_address via `eth_getLogs`.
-            //       Use the appropriate RPC URL from config based on chain.
-            tracing::debug!(
-                order_id = %order.order_id,
-                chain = %order.source_chain,
-                "EVM deposit check (stub)"
-            );
+            // For native ETH: check balance via eth_getBalance.
+            // For ERC-20 (USDC/USDT): check Transfer event logs via eth_getLogs.
+            let chain = order.source_chain.to_uppercase();
+            let is_erc20 = chain == "USDC" || chain == "USDT";
+
+            if is_erc20 {
+                // Check ERC-20 Transfer events to deposit_address
+                let logs = state.evm_rpc.get_erc20_transfer_logs(
+                    &chain, deposit_address, None
+                ).await?;
+                for log in &logs {
+                    if log.value >= expected_amount {
+                        tracing::info!(
+                            order_id = %order.order_id,
+                            tx_hash = %log.tx_hash,
+                            "ERC-20 deposit found on {}", chain
+                        );
+                        return Ok(Some(log.tx_hash.clone()));
+                    }
+                }
+            } else {
+                // Check native ETH/ARB/BASE balance
+                let balance = state.evm_rpc.get_balance(&chain, deposit_address).await?;
+                if balance >= expected_amount {
+                    // Get the latest transaction to this address for the tx_hash
+                    let txs = state.evm_rpc.get_internal_txs(&chain, deposit_address, 1).await?;
+                    if let Some(tx) = txs.first() {
+                        tracing::info!(
+                            order_id = %order.order_id,
+                            tx_hash = %tx.hash,
+                            "EVM native deposit found on {}", chain
+                        );
+                        return Ok(Some(tx.hash.clone()));
+                    }
+                }
+            }
             Ok(None)
         }
         "TON" => {
-            // TODO: Call TON Center `getTransactions` for deposit_address.
-            //       Look for incoming value transfer >= from_amount.
-            tracing::debug!(order_id = %order.order_id, "TON deposit check (stub)");
+            // Query TON Center for transactions to the deposit address.
+            let txs = state.ton_client.get_transactions(deposit_address, 10).await?;
+            for tx in &txs {
+                // TON values are in nanoton (1 TON = 1e9)
+                let value: u64 = tx.value.parse().unwrap_or(0);
+                let ton_amount = rust_decimal::Decimal::new(value as i64, 9);
+                if ton_amount >= expected_amount && tx.destination == deposit_address {
+                    tracing::info!(
+                        order_id = %order.order_id,
+                        tx_hash = %tx.hash,
+                        amount = %ton_amount,
+                        "TON deposit found"
+                    );
+                    return Ok(Some(tx.hash.clone()));
+                }
+            }
             Ok(None)
         }
         "SOL" => {
-            // TODO: Call Solana `getBalance` or `getSignaturesForAddress`
-            //       on the deposit address.
-            tracing::debug!(order_id = %order.order_id, "SOL deposit check (stub)");
+            // Check Solana balance for the deposit address via getBalance RPC.
+            let balance = state.solana_rpc.get_balance(deposit_address).await?;
+            // Solana amounts are in lamports (1 SOL = 1e9 lamports)
+            let sol_amount = rust_decimal::Decimal::new(balance as i64, 9);
+            if sol_amount >= expected_amount {
+                // Get recent signatures to find the deposit tx hash
+                let sigs = state.solana_rpc.get_signatures_for_address(deposit_address, 1).await?;
+                if let Some(sig) = sigs.first() {
+                    tracing::info!(
+                        order_id = %order.order_id,
+                        tx_hash = %sig.signature,
+                        amount = %sol_amount,
+                        "SOL deposit found"
+                    );
+                    return Ok(Some(sig.signature.clone()));
+                }
+            }
             Ok(None)
         }
         other => {

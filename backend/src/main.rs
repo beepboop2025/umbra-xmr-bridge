@@ -11,15 +11,24 @@ mod middleware;
 mod tasks;
 mod utils;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use axum::Router;
+use tokio::sync::Mutex;
 use tower_http::cors::{CorsLayer, Any};
 use tower_http::trace::TraceLayer;
 use tower_http::compression::CompressionLayer;
 use tower_http::timeout::TimeoutLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use crate::blockchain::bitcoin::BitcoinRpc;
+use crate::blockchain::evm::EvmClient;
+use crate::blockchain::monero::MoneroRpc;
+use crate::blockchain::solana::SolanaClient;
+use crate::blockchain::ton::TonClient;
 use crate::config::Config;
+use crate::mpc::coordinator::MpcCoordinator;
+use crate::services::evm_router::EvmRpcRouter;
 
 /// Shared application state accessible in all handlers.
 #[derive(Clone)]
@@ -28,6 +37,16 @@ pub struct AppState {
     pub db: db::Pool,
     pub redis: redis::RedisPool,
     pub http_client: reqwest::Client,
+
+    // Blockchain RPC clients
+    pub monero_rpc: Arc<MoneroRpc>,
+    pub bitcoin_rpc: Arc<BitcoinRpc>,
+    pub evm_rpc: Arc<EvmRpcRouter>,
+    pub ton_client: Arc<TonClient>,
+    pub solana_rpc: Arc<SolanaClient>,
+
+    // MPC threshold signing
+    pub mpc_coordinator: Arc<Mutex<MpcCoordinator>>,
 }
 
 #[tokio::main]
@@ -62,11 +81,52 @@ async fn main() {
         .build()
         .expect("Failed to create HTTP client");
 
+    // Blockchain RPC clients
+    let monero_rpc = Arc::new(MoneroRpc::new(
+        &config.monero_rpc_url,
+        config.monero_rpc_user.clone(),
+        config.monero_rpc_pass.clone(),
+    ));
+
+    let bitcoin_rpc = Arc::new(BitcoinRpc::new(
+        &config.bitcoin_rpc_url,
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_pass.clone(),
+    ));
+
+    let ton_client = Arc::new(TonClient::new(
+        &config.ton_api_url,
+        config.ton_api_key.clone(),
+    ));
+
+    let solana_rpc = Arc::new(SolanaClient::new(&config.solana_rpc_url));
+
+    // EVM clients — one per supported chain
+    let mut evm_clients = HashMap::new();
+    evm_clients.insert("ETH".to_string(), EvmClient::new(&config.eth_rpc_url, 1));
+    evm_clients.insert("ARB".to_string(), EvmClient::new(&config.arbitrum_rpc_url, 42161));
+    evm_clients.insert("BASE".to_string(), EvmClient::new(&config.base_rpc_url, 8453));
+    let evm_rpc = Arc::new(EvmRpcRouter::new(evm_clients));
+
+    // MPC coordinator for threshold signing
+    let mpc_coordinator = Arc::new(Mutex::new(MpcCoordinator::new(
+        config.mpc_threshold,
+        config.mpc_total_signers,
+    )));
+
+    tracing::info!("Blockchain RPC clients initialized");
+
     let state = AppState {
         config: Arc::new(config.clone()),
         db: db_pool,
         redis: redis_pool.clone(),
         http_client,
+        monero_rpc,
+        bitcoin_rpc,
+        evm_rpc,
+        ton_client,
+        solana_rpc,
+        mpc_coordinator,
     };
 
     // Spawn background tasks

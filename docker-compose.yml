@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # ---- Umbra API (Rust — single binary) ----
   api:
@@ -26,6 +24,30 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---- Risk Engine (Python/FastAPI) ----
+  risk-engine:
+    build: ./risk-engine
+    ports:
+      - "8080:8080"
+    environment:
+      - RISK_DATABASE_URL=postgresql://umbra:umbra@postgres:5432/umbra
+      - RISK_REDIS_URL=redis://redis:6379
+      - RISK_MAX_SINGLE_ORDER_USD=50000
+      - RISK_MAX_DAILY_VOLUME_USD=500000
+      - RISK_MAX_CHAIN_EXPOSURE_PCT=40
+      - RISK_ANOMALY_Z_THRESHOLD=2.5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -27,3 +27,9 @@ scrape_configs:
     static_configs:
       - targets: ["postgres-exporter:9187"]
     scrape_interval: 15s
+
+  - job_name: "risk-engine"
+    static_configs:
+      - targets: ["risk-engine:8080"]
+    metrics_path: /health
+    scrape_interval: 30s

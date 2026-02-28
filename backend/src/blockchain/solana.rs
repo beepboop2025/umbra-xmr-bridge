@@ -161,6 +161,48 @@ impl SolanaClient {
         })
     }
 
+    /// Get the most recent transaction signatures for `address`.
+    pub async fn get_signatures_for_address(
+        &self,
+        address: &str,
+        limit: u32,
+    ) -> Result<Vec<SolanaTransaction>> {
+        let result = self
+            .rpc_call(
+                "getSignaturesForAddress",
+                vec![json!(address), json!({"limit": limit})],
+            )
+            .await?;
+
+        let items = result
+            .as_array()
+            .ok_or_else(|| anyhow!("getSignaturesForAddress returned non-array"))?;
+
+        let mut sigs = Vec::with_capacity(items.len());
+        for item in items {
+            let signature = item
+                .get("signature")
+                .and_then(|s| s.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let slot = item.get("slot").and_then(|s| s.as_u64()).unwrap_or(0);
+            let block_time = item.get("blockTime").and_then(|b| b.as_i64());
+            let meta_err = item
+                .get("err")
+                .filter(|e| !e.is_null())
+                .cloned();
+
+            sigs.push(SolanaTransaction {
+                signature,
+                slot,
+                block_time,
+                meta_err,
+            });
+        }
+
+        Ok(sigs)
+    }
+
     // -----------------------------------------------------------------------
     // Private helper
     // -----------------------------------------------------------------------
