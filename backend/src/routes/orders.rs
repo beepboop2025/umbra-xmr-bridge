@@ -97,7 +97,7 @@ pub struct PaginatedResponse<T: Serialize> {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/v1/order", post(create_order))
-        .route("/v1/order/:order_id", get(get_order))
+        .route("/v1/order/{order_id}", get(get_order))
         .route("/v1/orders", get(list_orders))
         .route("/v1/order/:order_id/cancel", post(cancel_order))
 }

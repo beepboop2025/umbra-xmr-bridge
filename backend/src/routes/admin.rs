@@ -66,7 +66,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/v1/admin/login", post(admin_login))
         .route("/v1/admin/stats", get(admin_stats))
-        .route("/v1/admin/order/:order_id/refund", post(admin_refund))
+        .route("/v1/admin/order/{order_id}/refund", post(admin_refund))
 }
 
 // ---------------------------------------------------------------------------

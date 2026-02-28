@@ -220,26 +220,25 @@ pub async fn get_rate_history(
     direction: &str,
     period: &str,
 ) -> AppResult<Vec<RatePoint>> {
-    let interval = match period {
-        "1h" => "1 hour",
-        "4h" => "4 hours",
-        "24h" => "24 hours",
-        "7d" => "7 days",
-        "30d" => "30 days",
-        _ => "1 hour",
+    // Convert period to hours for parameterized interval query
+    let hours: i32 = match period {
+        "1h" => 1,
+        "4h" => 4,
+        "24h" => 24,
+        "7d" => 168,
+        "30d" => 720,
+        _ => 1,
     };
 
-    let query = format!(
+    let rows = sqlx::query_as::<_, ExchangeRate>(
         "SELECT id, direction, rate, source, created_at FROM exchange_rates \
-         WHERE direction = $1 AND created_at > NOW() - INTERVAL '{}' \
+         WHERE direction = $1 AND created_at > NOW() - make_interval(hours => $2) \
          ORDER BY created_at ASC",
-        interval
-    );
-
-    let rows = sqlx::query_as::<_, ExchangeRate>(&query)
-        .bind(direction)
-        .fetch_all(&state.db)
-        .await?;
+    )
+    .bind(direction)
+    .bind(hours)
+    .fetch_all(&state.db)
+    .await?;
 
     let points = rows
         .into_iter()

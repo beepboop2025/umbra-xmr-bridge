@@ -24,7 +24,7 @@ pub async fn log(
     }
 
     let prev_hash = sqlx::query_as::<_, HashRow>(
-        "SELECT content_hash FROM audit_logs ORDER BY id DESC LIMIT 1",
+        "SELECT content_hash FROM audit_log ORDER BY id DESC LIMIT 1",
     )
     .fetch_optional(db)
     .await?
@@ -44,7 +44,7 @@ pub async fn log(
     let content_hash = hex::encode(hasher.finalize());
 
     sqlx::query(
-        "INSERT INTO audit_logs (action, entity_type, entity_id, details, actor, prev_hash, content_hash, created_at) \
+        "INSERT INTO audit_log (action, entity_type, entity_id, details, actor, prev_hash, content_hash, created_at) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())",
     )
     .bind(action)
