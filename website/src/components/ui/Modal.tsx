@@ -54,7 +54,13 @@ export function Modal({
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={title ? 'modal-title' : undefined}
+          aria-describedby={description ? 'modal-description' : undefined}
+        >
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -62,6 +68,7 @@ export function Modal({
             transition={{ duration: 0.2 }}
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             onClick={onClose}
+            aria-hidden="true"
           />
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -77,14 +84,15 @@ export function Modal({
             {(title || showClose) && (
               <div className="flex items-center justify-between p-5 border-b border-surface-border">
                 <div>
-                  {title && <h2 className="text-lg font-semibold text-white">{title}</h2>}
+                  {title && <h2 id="modal-title" className="text-lg font-semibold text-white">{title}</h2>}
                   {description && (
-                    <p className="text-sm text-gray-400 mt-1">{description}</p>
+                    <p id="modal-description" className="text-sm text-gray-400 mt-1">{description}</p>
                   )}
                 </div>
                 {showClose && (
                   <button
                     onClick={onClose}
+                    aria-label="Close dialog"
                     className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-surface-elevated transition-colors"
                   >
                     <X size={18} />

@@ -80,8 +80,8 @@ impl EvmRpcRouter {
         let client = self.client_for(chain)?;
         let raw = client.get_balance(address).await?;
         let wei = raw.to_u128()?;
-        // 1 ETH = 1e18 wei
-        Ok(Decimal::new(wei as i64, 18))
+        // 1 ETH = 1e18 wei — use from_i128_with_scale to avoid i64 overflow
+        Ok(Decimal::from_i128_with_scale(wei as i128, 18))
     }
 
     /// Fetch ERC-20 Transfer events to `to_address` on `chain`.
@@ -157,7 +157,7 @@ impl EvmRpcRouter {
 
             let stripped = data_hex.strip_prefix("0x").unwrap_or(data_hex);
             let raw_value = u128::from_str_radix(stripped, 16).unwrap_or(0);
-            let value = Decimal::new(raw_value as i64, decimals);
+            let value = Decimal::from_i128_with_scale(raw_value as i128, decimals);
 
             let block_hex = log
                 .get("blockNumber")
@@ -248,6 +248,30 @@ impl EvmRpcRouter {
         }
 
         Ok(results)
+    }
+
+    /// Get the number of confirmations for a transaction on the specified chain.
+    ///
+    /// Returns `Ok(0)` if the tx hasn't been mined yet.
+    pub async fn get_confirmations(&self, chain: &str, tx_hash: &str) -> Result<u64> {
+        let client = self.client_for(chain)?;
+
+        let receipt = client.get_transaction_receipt(tx_hash).await?;
+        let receipt = match receipt {
+            Some(r) => r,
+            None => return Ok(0), // Not yet mined
+        };
+
+        let receipt_block_hex = receipt.block_number;
+        let stripped = receipt_block_hex.strip_prefix("0x").unwrap_or(&receipt_block_hex);
+        let receipt_block = u64::from_str_radix(stripped, 16).unwrap_or(0);
+
+        if receipt_block == 0 {
+            return Ok(0);
+        }
+
+        let latest = client.get_block_number().await?;
+        Ok(latest.saturating_sub(receipt_block) + 1)
     }
 
     /// Broadcast a signed raw transaction on the specified chain.

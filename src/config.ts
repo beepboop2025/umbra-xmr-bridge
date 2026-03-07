@@ -77,7 +77,7 @@ export const CONFIG: AppConfig = {
 
     // API endpoints (for future backend integration)
     API: {
-        BASE_URL: (import.meta as any).env?.VITE_API_URL || 'https://api.xmr-ton-bridge.io',
+        BASE_URL: (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000',
         ENDPOINTS: {
             RATE: '/v1/rate',
             ORDER: '/v1/order',

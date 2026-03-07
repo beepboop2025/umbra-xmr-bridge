@@ -85,9 +85,12 @@ async def on_startup(bot_instance: Bot) -> None:
     logger.info("Bot commands registered")
 
     if settings.is_webhook_mode:
+        kwargs = {"drop_pending_updates": True}
+        if settings.WEBHOOK_SECRET:
+            kwargs["secret_token"] = settings.WEBHOOK_SECRET
         await bot_instance.set_webhook(
             settings.full_webhook_url,
-            drop_pending_updates=True,
+            **kwargs,
         )
         logger.info("Webhook set: %s", settings.full_webhook_url)
     else:
@@ -141,7 +144,10 @@ def run_webhook() -> None:
     from aiohttp import web
 
     app = web.Application()
-    handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
+    handler_kwargs = {}
+    if settings.WEBHOOK_SECRET:
+        handler_kwargs["secret_token"] = settings.WEBHOOK_SECRET
+    handler = SimpleRequestHandler(dispatcher=dp, bot=bot, **handler_kwargs)
     handler.register(app, path=settings.WEBHOOK_PATH)
     setup_application(app, dp, bot=bot)
 

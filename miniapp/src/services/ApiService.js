@@ -104,7 +104,7 @@ class ApiService {
             ...options.headers,
         };
 
-        let lastError;
+        let lastError = new Error('Request failed');
         for (let attempt = 0; attempt < this._retryAttempts; attempt++) {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), this._timeout);
@@ -128,26 +128,28 @@ class ApiService {
 
             } catch (err) {
                 clearTimeout(timeoutId);
-                lastError = err;
 
                 if (err.name === 'AbortError') {
                     lastError = new Error('Request timed out');
+                } else {
+                    lastError = err;
                 }
 
                 // Don't retry POST requests (non-idempotent)
                 if (options.method === 'POST') break;
 
                 // Don't retry client errors (4xx)
-                if (err.message && err.message.startsWith('HTTP 4')) break;
+                if (lastError.message && lastError.message.startsWith('HTTP 4')) break;
 
-                // Wait before retry
+                // Exponential backoff before retry
                 if (attempt < this._retryAttempts - 1) {
-                    await new Promise(r => setTimeout(r, this._retryDelay * (attempt + 1)));
+                    const delay = this._retryDelay * Math.pow(2, attempt);
+                    await new Promise(r => setTimeout(r, delay));
                 }
             }
         }
 
-        eventBus.emit(EVENTS.API_ERROR, { endpoint, error: lastError?.message });
+        eventBus.emit(EVENTS.API_ERROR, { endpoint, error: lastError.message });
         throw lastError;
     }
 }

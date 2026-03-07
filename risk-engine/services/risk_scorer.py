@@ -31,12 +31,12 @@ class RiskScorer:
         factor_scores: dict[str, float] = {}
 
         # ---- Factor 1: Amount size ----
-        amount_usd = max(order.from_amount, order.to_amount)
+        amount_usd = max(float(order.from_amount), float(order.to_amount))
         if amount_usd > self.max_single_order:
             flags.append(f"amount_exceeds_limit: ${amount_usd:.2f} > ${self.max_single_order:.2f}")
             factor_scores["amount"] = min(1.0, amount_usd / self.max_single_order)
         else:
-            factor_scores["amount"] = amount_usd / self.max_single_order * 0.5
+            factor_scores["amount"] = min(1.0, amount_usd / self.max_single_order * 0.5)
 
         # ---- Factor 2: Daily volume check ----
         day_ago = datetime.now(timezone.utc) - timedelta(hours=24)
@@ -54,7 +54,7 @@ class RiskScorer:
             flags.append(f"daily_volume_exceeded: ${daily_total:.2f} > ${self.max_daily_volume:.2f}")
             factor_scores["daily_volume"] = min(1.0, daily_total / self.max_daily_volume)
         else:
-            factor_scores["daily_volume"] = daily_total / self.max_daily_volume * 0.3
+            factor_scores["daily_volume"] = min(1.0, daily_total / self.max_daily_volume * 0.3)
 
         # ---- Factor 3: User velocity ----
         velocity_score = 0.0
@@ -73,7 +73,7 @@ class RiskScorer:
                 flags.append(f"high_velocity: {recent_count} orders in 24h")
                 velocity_score = min(1.0, recent_count / 20)
             else:
-                velocity_score = recent_count / 20 * 0.3
+                velocity_score = min(1.0, recent_count / 20 * 0.3)
         elif order.ip_address:
             ip_count = await db.fetchval(
                 """
@@ -114,7 +114,7 @@ class RiskScorer:
             flags.append(f"chain_concentration: {order.dest_chain} at {chain_pct:.1f}%")
             factor_scores["concentration"] = min(1.0, chain_pct / 100)
         else:
-            factor_scores["concentration"] = chain_pct / 100 * 0.3
+            factor_scores["concentration"] = min(1.0, chain_pct / 100 * 0.3)
 
         # ---- Factor 5: Destination address newness ----
         addr_history = await db.fetchval(
@@ -194,14 +194,18 @@ class RiskScorer:
         if chain:
             query += " AND (source_chain = $2 OR dest_chain = $2)"
             params.append(chain)
-        query += " ORDER BY created_at ASC"
+        query += " ORDER BY created_at ASC LIMIT 10000"
 
         rows = await db.fetch(query, *params)
         if len(rows) < 5:
             return []
 
-        # Compute statistics on order amounts
-        amounts = np.array([float(r["from_amount"]) for r in rows])
+        # Compute statistics on order amounts, filtering out invalid values
+        raw_amounts = [float(r["from_amount"]) for r in rows]
+        raw_amounts = [a for a in raw_amounts if math.isfinite(a) and a > 0]
+        if len(raw_amounts) < 5:
+            return []
+        amounts = np.array(raw_amounts)
         mean_amt = float(np.mean(amounts))
         std_amt = float(np.std(amounts))
 

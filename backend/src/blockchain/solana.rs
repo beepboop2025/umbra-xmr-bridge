@@ -20,6 +20,14 @@ pub struct SolanaTransaction {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignatureStatus {
+    /// Number of confirmations, or `None` if finalized/unknown.
+    pub confirmations: Option<u64>,
+    /// One of "processed", "confirmed", "finalized", or "unknown".
+    pub confirmation_status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SolanaTokenBalance {
     /// The raw token amount as a string (no decimal point).
     pub amount: String,
@@ -158,6 +166,47 @@ impl SolanaClient {
             amount,
             decimals,
             ui_amount,
+        })
+    }
+
+    /// Check the confirmation status of a transaction signature.
+    ///
+    /// Returns a [`SignatureStatus`] with confirmation count and finality info.
+    /// Used by the confirmation_checker to verify deposit finality.
+    pub async fn get_signature_status(&self, signature: &str) -> Result<SignatureStatus> {
+        let result = self
+            .rpc_call(
+                "getSignatureStatuses",
+                vec![json!([signature])],
+            )
+            .await?;
+
+        let value = result
+            .get("value")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first())
+            .ok_or_else(|| anyhow!("getSignatureStatuses returned empty result"))?;
+
+        if value.is_null() {
+            return Ok(SignatureStatus {
+                confirmations: None,
+                confirmation_status: "unknown".to_string(),
+            });
+        }
+
+        let confirmations = value
+            .get("confirmations")
+            .and_then(|c| c.as_u64());
+
+        let confirmation_status = value
+            .get("confirmationStatus")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        Ok(SignatureStatus {
+            confirmations,
+            confirmation_status,
         })
     }
 

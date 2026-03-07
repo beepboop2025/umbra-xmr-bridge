@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import asyncpg
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
@@ -31,8 +31,9 @@ from services.risk_scorer import RiskScorer
 # ---------------------------------------------------------------------------
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql://umbra:umbra@localhost:5432/umbra"
+    database_url: str  # required — no default
     redis_url: str = "redis://localhost:6379"
+    api_key: str = ""  # Internal API key for service-to-service auth
     # Risk thresholds
     max_single_order_usd: float = 50_000.0
     max_daily_volume_usd: float = 500_000.0
@@ -99,6 +100,16 @@ class AnomalyRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Auth dependency for internal API calls
+# ---------------------------------------------------------------------------
+
+async def verify_api_key(x_api_key: str | None = Header(None)):
+    """Verify internal API key for risk endpoints. Skipped if no key configured."""
+    if settings.api_key and x_api_key != settings.api_key:
+        raise HTTPException(status_code=403, detail="Invalid or missing API key")
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -107,7 +118,7 @@ async def health():
     return {"status": "ok", "service": "risk-engine", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
-@app.post("/risk/score", response_model=RiskScoreResponse)
+@app.post("/risk/score", response_model=RiskScoreResponse, dependencies=[Depends(verify_api_key)])
 async def score_order(req: RiskScoreRequest):
     """Score a bridge order for risk before execution."""
     db = app.state.db
@@ -121,7 +132,7 @@ async def score_order(req: RiskScoreRequest):
     return result
 
 
-@app.get("/risk/exposure")
+@app.get("/risk/exposure", dependencies=[Depends(verify_api_key)])
 async def get_exposure():
     """Return current exposure breakdown by chain."""
     db = app.state.db
@@ -135,7 +146,7 @@ async def get_exposure():
     return exposure
 
 
-@app.get("/risk/liquidity")
+@app.get("/risk/liquidity", dependencies=[Depends(verify_api_key)])
 async def get_liquidity():
     """Return liquidity depth estimates across chains."""
     db = app.state.db
@@ -149,7 +160,7 @@ async def get_liquidity():
     return liquidity
 
 
-@app.post("/risk/anomaly")
+@app.post("/risk/anomaly", dependencies=[Depends(verify_api_key)])
 async def detect_anomalies(req: AnomalyRequest):
     """Detect anomalous swap patterns in recent history."""
     db = app.state.db

@@ -55,10 +55,11 @@ export function BridgeForm() {
         dest_address: bridge.destAddress,
         refund_address: bridge.refundAddress || undefined,
       });
+      // Only close modal and reset on success
       setShowConfirm(false);
       bridge.reset();
     } catch {
-      // Error handled by useCreateOrder
+      // Error toast shown by useCreateOrder — keep modal open so user can retry
     } finally {
       setIsSubmitting(false);
     }

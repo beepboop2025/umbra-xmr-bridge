@@ -79,6 +79,33 @@ async fn admin_login(
 ) -> AppResult<Json<LoginResponse>> {
     metrics::counter!("http_requests_total", "endpoint" => "admin_login").increment(1);
 
+    // Rate limit: max 5 login attempts per username per 15 minutes
+    let rate_key = format!("admin_login_attempts:{}", req.username);
+    {
+        let mut conn = state.redis.clone();
+        let attempts: i64 = redis::cmd("GET")
+            .arg(&rate_key)
+            .query_async::<_, Option<i64>>(&mut conn)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(0);
+
+        if attempts >= 5 {
+            metrics::counter!("admin_login_rate_limited").increment(1);
+            return Err(AppError::TooManyRequests(
+                "Too many login attempts. Try again in 15 minutes.".into(),
+            ));
+        }
+
+        // Increment counter with 15-minute TTL
+        let _: Result<(), _> = redis::pipe()
+            .cmd("INCR").arg(&rate_key)
+            .cmd("EXPIRE").arg(&rate_key).arg(900_u64)
+            .query_async(&mut conn)
+            .await;
+    }
+
     // Fetch admin user
     let user: AdminUser = sqlx::query_as::<_, AdminUser>(
         "SELECT * FROM admin_users WHERE username = $1 AND is_active = true",

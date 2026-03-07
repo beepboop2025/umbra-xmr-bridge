@@ -1,108 +1,17 @@
 'use client';
 
-import { useState } from 'react';
-import { Search, Filter, Shield, User, Clock, Globe } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Filter, Shield, User, Clock, Globe, RefreshCw } from 'lucide-react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Table, Pagination, type Column } from '@/components/ui/Table';
 import { Badge } from '@/components/ui/Badge';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
+import { Button } from '@/components/ui/Button';
 import { formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
-
-interface AuditEntry {
-  id: string;
-  action: string;
-  actor: string;
-  target?: string;
-  details: string;
-  timestamp: string;
-  ip?: string;
-}
-
-// Mock audit data
-const mockAuditData: AuditEntry[] = [
-  {
-    id: 'aud_001',
-    action: 'order.created',
-    actor: 'system',
-    target: 'ord_1042',
-    details: 'New bridge order created: 2.5 XMR -> ETH',
-    timestamp: new Date(Date.now() - 300000).toISOString(),
-    ip: '192.168.1.1',
-  },
-  {
-    id: 'aud_002',
-    action: 'order.completed',
-    actor: 'system',
-    target: 'ord_1041',
-    details: 'Order completed successfully. Payout sent.',
-    timestamp: new Date(Date.now() - 900000).toISOString(),
-  },
-  {
-    id: 'aud_003',
-    action: 'wallet.rebalance',
-    actor: 'admin',
-    details: 'Hot wallet rebalanced: Moved 1.5 BTC to cold storage',
-    timestamp: new Date(Date.now() - 3600000).toISOString(),
-    ip: '10.0.0.1',
-  },
-  {
-    id: 'aud_004',
-    action: 'rate.updated',
-    actor: 'system',
-    details: 'XMR/BTC rate updated: 0.00285 -> 0.00287',
-    timestamp: new Date(Date.now() - 5400000).toISOString(),
-  },
-  {
-    id: 'aud_005',
-    action: 'order.expired',
-    actor: 'system',
-    target: 'ord_1039',
-    details: 'Order expired: No deposit received within 30 minutes',
-    timestamp: new Date(Date.now() - 7200000).toISOString(),
-  },
-  {
-    id: 'aud_006',
-    action: 'admin.login',
-    actor: 'admin',
-    details: 'Admin login from trusted IP',
-    timestamp: new Date(Date.now() - 10800000).toISOString(),
-    ip: '10.0.0.1',
-  },
-  {
-    id: 'aud_007',
-    action: 'config.updated',
-    actor: 'admin',
-    details: 'Updated fee configuration: bridge_fee from 0.5% to 0.45%',
-    timestamp: new Date(Date.now() - 14400000).toISOString(),
-    ip: '10.0.0.1',
-  },
-  {
-    id: 'aud_008',
-    action: 'order.refunded',
-    actor: 'system',
-    target: 'ord_1035',
-    details: 'Order refunded: Destination chain network congestion',
-    timestamp: new Date(Date.now() - 18000000).toISOString(),
-  },
-  {
-    id: 'aud_009',
-    action: 'alert.triggered',
-    actor: 'system',
-    details: 'Low balance alert: BTC wallet below threshold (0.8 BTC)',
-    timestamp: new Date(Date.now() - 21600000).toISOString(),
-  },
-  {
-    id: 'aud_010',
-    action: 'service.restart',
-    actor: 'admin',
-    details: 'Restarted monero_rpc service after connection timeout',
-    timestamp: new Date(Date.now() - 86400000).toISOString(),
-    ip: '10.0.0.1',
-  },
-];
+import apiClient, { type AuditEntry } from '@/lib/api-client';
 
 const actionOptions = [
   { value: 'all', label: 'All Actions' },
@@ -133,19 +42,40 @@ export default function AuditLogPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [actionFilter, setActionFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const filteredEntries = mockAuditData.filter((entry) => {
-    if (actionFilter !== 'all' && !entry.action.startsWith(actionFilter)) return false;
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      return (
-        entry.action.toLowerCase().includes(q) ||
-        entry.details.toLowerCase().includes(q) ||
-        entry.actor.toLowerCase().includes(q) ||
-        (entry.target || '').toLowerCase().includes(q)
-      );
+  const fetchAuditLog = async () => {
+    setIsLoading(true);
+    try {
+      const data = await apiClient.getAuditLog({
+        page: currentPage,
+        limit: 50,
+        action: actionFilter !== 'all' ? actionFilter : undefined,
+      });
+      setEntries(data.entries);
+      setTotal(data.total);
+    } catch (e) {
+      // Failed to fetch — keep existing data
+    } finally {
+      setIsLoading(false);
     }
-    return true;
+  };
+
+  useEffect(() => {
+    fetchAuditLog();
+  }, [currentPage, actionFilter]);
+
+  const filteredEntries = entries.filter((entry) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      entry.action.toLowerCase().includes(q) ||
+      entry.details.toLowerCase().includes(q) ||
+      entry.actor.toLowerCase().includes(q) ||
+      (entry.target || '').toLowerCase().includes(q)
+    );
   });
 
   const columns: Column<AuditEntry>[] = [
@@ -225,11 +155,22 @@ export default function AuditLogPage() {
     <div className="flex">
       <Sidebar />
       <div className="flex-1 p-6 pb-24 md:pb-6 max-w-6xl">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-white">Audit Log</h1>
-          <p className="text-sm text-gray-400 mt-1">
-            Complete record of all system actions and events
-          </p>
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-white">Audit Log</h1>
+            <p className="text-sm text-gray-400 mt-1">
+              {total} total entries
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<RefreshCw size={14} />}
+            onClick={fetchAuditLog}
+            loading={isLoading}
+          >
+            Refresh
+          </Button>
         </div>
 
         {/* Filters */}

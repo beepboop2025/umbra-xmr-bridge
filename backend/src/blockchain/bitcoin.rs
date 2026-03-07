@@ -73,15 +73,14 @@ impl BitcoinRpc {
             .await
     }
 
-    /// List unspent outputs with at least `min_conf` confirmations,
+    /// List unspent outputs with confirmations in `[min_conf, max_conf]`,
     /// optionally filtered to the given addresses.
     pub async fn list_unspent(
         &self,
         min_conf: u32,
+        max_conf: u32,
         addresses: &[&str],
     ) -> Result<Vec<BtcUtxo>> {
-        // listunspent minconf maxconf ["addresses"]
-        let max_conf = 9999999u32;
         let addr_array: Vec<Value> = addresses.iter().map(|a| json!(a)).collect();
         self.rpc_call(
             "listunspent",

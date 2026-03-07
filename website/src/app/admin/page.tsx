@@ -19,7 +19,7 @@ import { CHAINS } from '@/lib/chains';
 import { cn } from '@/lib/utils';
 
 export default function AdminPage() {
-  const { data: health, isLoading } = useSystemHealth();
+  const { data: health, isLoading, error } = useSystemHealth();
 
   if (isLoading && !health) {
     return (
@@ -31,6 +31,27 @@ export default function AdminPage() {
               <SkeletonCard key={i} />
             ))}
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !health) {
+    return (
+      <div className="flex">
+        <Sidebar />
+        <div className="flex-1 p-6 max-w-6xl">
+          <Card>
+            <div className="flex items-center gap-3 p-4">
+              <XCircle size={20} className="text-red-400 shrink-0" />
+              <div>
+                <p className="text-white font-medium">Failed to load system health</p>
+                <p className="text-sm text-gray-400 mt-1">
+                  {error?.message || 'Could not connect to the API. Check that the backend is running.'}
+                </p>
+              </div>
+            </div>
+          </Card>
         </div>
       </div>
     );

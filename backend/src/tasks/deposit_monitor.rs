@@ -110,15 +110,14 @@ async fn check_deposit(
             // The deposit_address maps to a specific subaddress index stored in order metadata.
             let subaddr_index: u32 = order
                 .metadata
-                .as_ref()
-                .and_then(|m| m.get("subaddr_index"))
+                .get("subaddr_index")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as u32;
 
             let transfers = state.monero_rpc.get_transfers(0, &[subaddr_index]).await?;
             for tx in &transfers {
                 // Monero amounts are in piconero (1 XMR = 1e12 piconero)
-                let xmr_amount = rust_decimal::Decimal::new(tx.amount as i64, 12);
+                let xmr_amount = rust_decimal::Decimal::from_i128_with_scale(tx.amount as i128, 12);
                 if xmr_amount >= expected_amount && tx.address == deposit_address {
                     tracing::info!(
                         order_id = %order.order_id,
@@ -194,8 +193,14 @@ async fn check_deposit(
             let txs = state.ton_client.get_transactions(deposit_address, 10).await?;
             for tx in &txs {
                 // TON values are in nanoton (1 TON = 1e9)
-                let value: u64 = tx.value.parse().unwrap_or(0);
-                let ton_amount = rust_decimal::Decimal::new(value as i64, 9);
+                let value: u64 = tx.value.parse().unwrap_or_else(|_| {
+                    tracing::warn!(order_id = %order.order_id, raw_value = %tx.value, "Failed to parse TON value");
+                    0
+                });
+                if value == 0 {
+                    continue;
+                }
+                let ton_amount = rust_decimal::Decimal::from_i128_with_scale(value as i128, 9);
                 if ton_amount >= expected_amount && tx.destination == deposit_address {
                     tracing::info!(
                         order_id = %order.order_id,
@@ -212,7 +217,7 @@ async fn check_deposit(
             // Check Solana balance for the deposit address via getBalance RPC.
             let balance = state.solana_rpc.get_balance(deposit_address).await?;
             // Solana amounts are in lamports (1 SOL = 1e9 lamports)
-            let sol_amount = rust_decimal::Decimal::new(balance as i64, 9);
+            let sol_amount = rust_decimal::Decimal::from_i128_with_scale(balance as i128, 9);
             if sol_amount >= expected_amount {
                 // Get recent signatures to find the deposit tx hash
                 let sigs = state.solana_rpc.get_signatures_for_address(deposit_address, 1).await?;

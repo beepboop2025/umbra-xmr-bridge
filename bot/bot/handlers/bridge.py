@@ -220,10 +220,36 @@ async def _process_amount_msg(message: Message, state: FSMContext, amount: float
 # ---------------------------------------------------------------------------
 # Step 4 -- address entered, show confirmation
 # ---------------------------------------------------------------------------
+import re
+
+# Chain-specific address patterns
+_ADDRESS_PATTERNS: dict[str, re.Pattern[str]] = {
+    "XMR": re.compile(r"^[48][1-9A-HJ-NP-Za-km-z]{94}$"),
+    "BTC": re.compile(r"^(bc1[a-z0-9]{25,87}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})$"),
+    "ETH": re.compile(r"^0x[a-fA-F0-9]{40}$"),
+    "ARB": re.compile(r"^0x[a-fA-F0-9]{40}$"),
+    "BASE": re.compile(r"^0x[a-fA-F0-9]{40}$"),
+    "USDC": re.compile(r"^0x[a-fA-F0-9]{40}$"),
+    "USDT": re.compile(r"^0x[a-fA-F0-9]{40}$"),
+    "TON": re.compile(r"^((EQ|UQ)[A-Za-z0-9_-]{46}|0:[a-fA-F0-9]{64})$"),
+    "SOL": re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$"),
+}
+
+
 @router.message(BridgeStates.entering_address)
 async def msg_address_input(message: Message, state: FSMContext) -> None:
     address = (message.text or "").strip()
-    if len(address) < 10:
+    data = await state.get_data()
+    to_cur = data.get("to_currency", "").upper()
+
+    # Validate against chain-specific pattern
+    pattern = _ADDRESS_PATTERNS.get(to_cur)
+    if pattern and not pattern.match(address):
+        await message.answer(
+            f"\u26a0\ufe0f Invalid {to_cur} address format. Please check and try again.",
+        )
+        return
+    elif not pattern and len(address) < 10:
         await message.answer(
             "\u26a0\ufe0f That doesn't look like a valid address. Please try again.",
         )
@@ -275,7 +301,12 @@ async def msg_address_input(message: Message, state: FSMContext) -> None:
 # Step 5 -- confirm or cancel
 # ---------------------------------------------------------------------------
 @router.callback_query(F.data == "confirm:bridge")
-async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+async def cb_confirm_order(
+    callback: CallbackQuery,
+    state: FSMContext,
+    bot: Bot,
+    order_flag: dict[str, bool] | None = None,
+) -> None:
     data = await state.get_data()
     user_id = callback.from_user.id
 
@@ -329,10 +360,11 @@ async def cb_confirm_order(callback: CallbackQuery, state: FSMContext, bot: Bot)
         await state.clear()
         return
 
-    # Signal to rate-limit middleware
-    order_flag: dict[str, bool] | None = callback.__dict__.get("order_flag")
-    # The flag is injected via middleware data, access it properly:
-    # (it's in the handler's **data kwargs -- we passed it through)
+    # Signal to rate-limit middleware that an order was created.
+    # The middleware injects `order_flag` into handler data dict;
+    # aiogram passes it as a keyword argument to the handler.
+    if order_flag is not None:
+        order_flag["created"] = True
 
     await state.clear()
 

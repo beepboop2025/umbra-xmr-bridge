@@ -9,9 +9,11 @@ class WebSocketService {
     constructor() {
         this._orderWs = null;
         this._ratesWs = null;
-        this._reconnectAttempts = 0;
+        this._orderReconnectAttempts = 0;
+        this._ratesReconnectAttempts = 0;
         this._maxReconnectDelay = 30000;
-        this._intentionalClose = false;
+        this._orderIntentionalClose = false;
+        this._ratesIntentionalClose = false;
     }
 
     /**
@@ -20,14 +22,14 @@ class WebSocketService {
      */
     connectOrder(orderId) {
         this.disconnectOrder();
-        this._intentionalClose = false;
+        this._orderIntentionalClose = false;
 
         const url = `${CONFIG.WS.BASE_URL}/v1/ws/order/${encodeURIComponent(orderId)}`;
         this._orderWs = new WebSocket(url);
 
         this._orderWs.onopen = () => {
             console.log('[WS] Order connection established');
-            this._reconnectAttempts = 0;
+            this._orderReconnectAttempts = 0;
         };
 
         this._orderWs.onmessage = (event) => {
@@ -37,8 +39,10 @@ class WebSocketService {
 
                 if (data.status === 'completed') {
                     eventBus.emit(EVENTS.ORDER_COMPLETED, data);
+                    this.disconnectOrder(); // stop reconnecting on terminal state
                 } else if (data.status === 'failed') {
                     eventBus.emit(EVENTS.ORDER_FAILED, data);
+                    this.disconnectOrder();
                 }
             } catch (err) {
                 console.error('[WS] Failed to parse order message:', err);
@@ -50,7 +54,7 @@ class WebSocketService {
         };
 
         this._orderWs.onclose = () => {
-            if (!this._intentionalClose) {
+            if (!this._orderIntentionalClose) {
                 console.log('[WS] Order connection closed, reconnecting...');
                 this._reconnectOrder(orderId);
             }
@@ -62,13 +66,14 @@ class WebSocketService {
      */
     connectRates() {
         this.disconnectRates();
-        this._intentionalClose = false;
+        this._ratesIntentionalClose = false;
 
         const url = `${CONFIG.WS.BASE_URL}/v1/ws/rates`;
         this._ratesWs = new WebSocket(url);
 
         this._ratesWs.onopen = () => {
             console.log('[WS] Rates connection established');
+            this._ratesReconnectAttempts = 0;
         };
 
         this._ratesWs.onmessage = (event) => {
@@ -89,8 +94,14 @@ class WebSocketService {
         };
 
         this._ratesWs.onclose = () => {
-            if (!this._intentionalClose) {
-                setTimeout(() => this.connectRates(), 5000);
+            if (!this._ratesIntentionalClose) {
+                this._ratesReconnectAttempts++;
+                const delay = Math.min(
+                    1000 * Math.pow(2, this._ratesReconnectAttempts - 1),
+                    this._maxReconnectDelay
+                );
+                console.log(`[WS] Reconnecting rates in ${delay}ms (attempt ${this._ratesReconnectAttempts})`);
+                setTimeout(() => this.connectRates(), delay);
             }
         };
     }
@@ -99,8 +110,8 @@ class WebSocketService {
      * Disconnect order WebSocket
      */
     disconnectOrder() {
+        this._orderIntentionalClose = true;
         if (this._orderWs) {
-            this._intentionalClose = true;
             this._orderWs.close();
             this._orderWs = null;
         }
@@ -110,8 +121,8 @@ class WebSocketService {
      * Disconnect rates WebSocket
      */
     disconnectRates() {
+        this._ratesIntentionalClose = true;
         if (this._ratesWs) {
-            this._intentionalClose = true;
             this._ratesWs.close();
             this._ratesWs = null;
         }
@@ -129,12 +140,12 @@ class WebSocketService {
      * Reconnect with exponential backoff
      */
     _reconnectOrder(orderId) {
-        this._reconnectAttempts++;
+        this._orderReconnectAttempts++;
         const delay = Math.min(
-            1000 * Math.pow(2, this._reconnectAttempts - 1),
+            1000 * Math.pow(2, this._orderReconnectAttempts - 1),
             this._maxReconnectDelay
         );
-        console.log(`[WS] Reconnecting order in ${delay}ms (attempt ${this._reconnectAttempts})`);
+        console.log(`[WS] Reconnecting order in ${delay}ms (attempt ${this._orderReconnectAttempts})`);
         setTimeout(() => this.connectOrder(orderId), delay);
     }
 }

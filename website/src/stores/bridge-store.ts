@@ -107,8 +107,11 @@ export const useBridgeStore = create<BridgeState>((set, get) => ({
   setSourceAmount: (amount) => {
     const numAmount = parseFloat(amount) || 0;
     const state = get();
-    const fee = numAmount * (state.feePercent / 100);
-    const destAmount = state.rate > 0 ? (numAmount - fee) * state.rate - state.networkFee : 0;
+    const rate = Number(state.rate) || 0;
+    const feePercent = Number(state.feePercent) || 0;
+    const networkFee = Number(state.networkFee) || 0;
+    const fee = numAmount * (feePercent / 100);
+    const destAmount = rate > 0 ? (numAmount - fee) * rate - networkFee : 0;
     set({
       sourceAmount: amount,
       destAmount: destAmount > 0 ? destAmount.toFixed(8) : '',
@@ -124,13 +127,16 @@ export const useBridgeStore = create<BridgeState>((set, get) => ({
   setRate: (rate, feePercent, networkFee, estimatedTime) => {
     const state = get();
     const numAmount = parseFloat(state.sourceAmount) || 0;
-    const fee = numAmount * (feePercent / 100);
-    const destAmount = rate > 0 ? (numAmount - fee) * rate - networkFee : 0;
+    const safeRate = Number(rate) || 0;
+    const safeFee = Number(feePercent) || 0;
+    const safeNetFee = Number(networkFee) || 0;
+    const fee = numAmount * (safeFee / 100);
+    const destAmount = safeRate > 0 ? (numAmount - fee) * safeRate - safeNetFee : 0;
     set({
-      rate,
-      feePercent,
-      networkFee,
-      estimatedTime,
+      rate: safeRate,
+      feePercent: safeFee,
+      networkFee: safeNetFee,
+      estimatedTime: Number(estimatedTime) || 0,
       destAmount: destAmount > 0 ? destAmount.toFixed(8) : '',
     });
   },

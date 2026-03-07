@@ -5,7 +5,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgres://umbra:umbra@postgres:5432/umbra
+      - DATABASE_URL=postgres://${POSTGRES_USER:-umbra}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-umbra}
       - REDIS_URL=redis://redis:6379
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production-64-chars-minimum-random-string}
       - CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:5173
@@ -16,6 +16,9 @@ services:
       - ETH_RPC_URL=${ETH_RPC_URL:-https://eth.llamarpc.com}
       - BITCOIN_RPC_URL=${BITCOIN_RPC_URL:-http://bitcoind:8332}
       - SOLANA_RPC_URL=${SOLANA_RPC_URL:-https://api.mainnet-beta.solana.com}
+      - EVM_DEPOSIT_ADDRESS=${EVM_DEPOSIT_ADDRESS:-}
+      - TON_DEPOSIT_ADDRESS=${TON_DEPOSIT_ADDRESS:-}
+      - SOL_DEPOSIT_ADDRESS=${SOL_DEPOSIT_ADDRESS:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -33,13 +36,18 @@ services:
     build: ./risk-engine
     ports:
       - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     environment:
-      - RISK_DATABASE_URL=postgresql://umbra:umbra@postgres:5432/umbra
+      - RISK_DATABASE_URL=postgresql://${POSTGRES_USER:-umbra}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-umbra}
       - RISK_REDIS_URL=redis://redis:6379
       - RISK_MAX_SINGLE_ORDER_USD=50000
       - RISK_MAX_DAILY_VOLUME_USD=500000
       - RISK_MAX_CHAIN_EXPOSURE_PCT=40
       - RISK_ANOMALY_Z_THRESHOLD=2.5
+      - RISK_API_KEY=${RISK_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -88,24 +96,28 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: umbra
-      POSTGRES_PASSWORD: umbra
-      POSTGRES_DB: umbra
+      POSTGRES_USER: ${POSTGRES_USER:-umbra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-umbra}
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U umbra"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-umbra}"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1g
 
   # ---- Redis ----
   redis:
     image: redis:7-alpine
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --appendonly yes
     ports:
       - "6379:6379"
     volumes:
@@ -116,6 +128,10 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   # ---- Nginx Reverse Proxy ----
   nginx:
@@ -147,7 +163,7 @@ services:
     ports:
       - "3002:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - grafanadata:/var/lib/grafana

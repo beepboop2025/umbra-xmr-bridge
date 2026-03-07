@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # Webhook (optional -- when unset the bot uses long-polling)
     WEBHOOK_URL: str = ""
     WEBHOOK_PATH: str = "/webhook/telegram"
+    WEBHOOK_SECRET: str = ""  # Secret token for Telegram webhook signature verification
 
     # Rate-limiting defaults
     MAX_ORDERS_PER_HOUR: int = 3

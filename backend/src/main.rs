@@ -59,6 +59,7 @@ async fn main() {
         .init();
 
     let config = Config::from_env();
+    config.validate();
     tracing::info!("Starting Umbra API on {}", config.addr());
 
     // Connect to backing services

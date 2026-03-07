@@ -102,26 +102,8 @@ export function useSystemHealth() {
     services: Record<string, { status: string; latency: number }>;
   }>('/api/admin/health', {
     refreshInterval: 10000,
-    fallbackData: {
-      status: 'healthy',
-      uptime: 864000,
-      pending_orders: 5,
-      wallet_balances: {
-        XMR: 125.5,
-        BTC: 2.34,
-        ETH: 45.67,
-        TON: 12500,
-        SOL: 890,
-      },
-      services: {
-        monero_rpc: { status: 'healthy', latency: 45 },
-        bitcoin_rpc: { status: 'healthy', latency: 120 },
-        ethereum_rpc: { status: 'healthy', latency: 85 },
-        ton_rpc: { status: 'healthy', latency: 30 },
-        database: { status: 'healthy', latency: 5 },
-        redis: { status: 'healthy', latency: 2 },
-      },
-    },
+    // No fallbackData — admin pages must show real data or an error state,
+    // never fake "healthy" status that masks actual failures.
   });
 }
 

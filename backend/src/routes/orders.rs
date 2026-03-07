@@ -186,6 +186,32 @@ async fn cancel_order(
 // Validation helpers
 // ---------------------------------------------------------------------------
 
+/// Minimum order amount per chain (in native units).
+fn min_amount_for(chain: &str) -> Decimal {
+    match chain {
+        "XMR" => Decimal::new(1, 3),    // 0.001 XMR
+        "BTC" => Decimal::new(1, 5),    // 0.00001 BTC
+        "ETH" | "ARB" | "BASE" => Decimal::new(1, 4), // 0.0001 ETH
+        "TON" => Decimal::new(1, 1),    // 0.1 TON
+        "SOL" => Decimal::new(1, 3),    // 0.001 SOL
+        "USDC" | "USDT" => Decimal::new(1, 0), // 1 USD
+        _ => Decimal::new(1, 4),
+    }
+}
+
+/// Maximum order amount per chain (in native units).
+fn max_amount_for(chain: &str) -> Decimal {
+    match chain {
+        "XMR" => Decimal::new(500, 0),
+        "BTC" => Decimal::new(10, 0),
+        "ETH" | "ARB" | "BASE" => Decimal::new(100, 0),
+        "TON" => Decimal::new(50_000, 0),
+        "SOL" => Decimal::new(5_000, 0),
+        "USDC" | "USDT" => Decimal::new(50_000, 0),
+        _ => Decimal::new(100, 0),
+    }
+}
+
 fn validate_create_request(req: &OrderCreateRequest) -> AppResult<()> {
     if req.amount <= Decimal::ZERO {
         return Err(AppError::BadRequest("amount must be > 0".into()));
@@ -227,6 +253,20 @@ fn validate_create_request(req: &OrderCreateRequest) -> AppResult<()> {
         return Err(AppError::BadRequest(
             "slippage must be between 0.1 and 5.0 percent".into(),
         ));
+    }
+
+    // Amount bounds per source chain
+    let min = min_amount_for(&src);
+    let max = max_amount_for(&src);
+    if req.amount < min {
+        return Err(AppError::BadRequest(format!(
+            "Minimum amount for {src} is {min}"
+        )));
+    }
+    if req.amount > max {
+        return Err(AppError::BadRequest(format!(
+            "Maximum amount for {src} is {max}"
+        )));
     }
 
     Ok(())

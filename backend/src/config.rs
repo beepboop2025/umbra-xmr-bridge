@@ -35,6 +35,11 @@ pub struct Config {
     pub bitcoin_rpc_user: Option<String>,
     pub bitcoin_rpc_pass: Option<String>,
 
+    // Deposit addresses (hot wallets for chains that don't generate per-order addresses)
+    pub evm_deposit_address: Option<String>,
+    pub ton_deposit_address: Option<String>,
+    pub sol_deposit_address: Option<String>,
+
     // Rate sources
     pub coingecko_api_key: Option<String>,
 
@@ -85,6 +90,10 @@ impl Config {
             bitcoin_rpc_user: env_opt("BITCOIN_RPC_USER"),
             bitcoin_rpc_pass: env_opt("BITCOIN_RPC_PASS"),
 
+            evm_deposit_address: env_opt("EVM_DEPOSIT_ADDRESS"),
+            ton_deposit_address: env_opt("TON_DEPOSIT_ADDRESS"),
+            sol_deposit_address: env_opt("SOL_DEPOSIT_ADDRESS"),
+
             coingecko_api_key: env_opt("COINGECKO_API_KEY"),
 
             bridge_fee_percent: env("BRIDGE_FEE_PERCENT", "0.3").parse().unwrap_or(0.3),
@@ -102,6 +111,36 @@ impl Config {
                 .map(|s| s.trim().to_string())
                 .collect(),
         }
+    }
+
+    /// Validate configuration invariants at startup. Panics on invalid config.
+    pub fn validate(&self) {
+        assert!(
+            self.secret_key.len() >= 32,
+            "SECRET_KEY must be at least 32 characters (got {})",
+            self.secret_key.len()
+        );
+        assert!(
+            self.mpc_threshold > 0 && self.mpc_threshold <= self.mpc_total_signers,
+            "MPC_THRESHOLD ({}) must be > 0 and <= MPC_TOTAL_SIGNERS ({})",
+            self.mpc_threshold,
+            self.mpc_total_signers
+        );
+        assert!(
+            self.bridge_fee_percent >= 0.0 && self.bridge_fee_percent <= 10.0,
+            "BRIDGE_FEE_PERCENT ({}) must be between 0 and 10",
+            self.bridge_fee_percent
+        );
+        assert!(
+            self.order_expiry_minutes >= 5 && self.order_expiry_minutes <= 1440,
+            "ORDER_EXPIRY_MINUTES ({}) must be between 5 and 1440",
+            self.order_expiry_minutes
+        );
+        assert!(
+            self.db_max_connections >= 1 && self.db_max_connections <= 100,
+            "DB_MAX_CONNECTIONS ({}) must be between 1 and 100",
+            self.db_max_connections
+        );
     }
 
     pub fn addr(&self) -> SocketAddr {

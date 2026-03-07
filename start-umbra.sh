@@ -43,22 +43,36 @@ fi
 # ── 3. Start Cloudflare tunnel ──
 echo ""
 echo "[3/3] Starting Cloudflare tunnel..."
-cloudflared tunnel --url http://localhost:80 \
-    --no-autoupdate \
-    > "$TUNNEL_LOG" 2>&1 &
 
-TUNNEL_PID=$!
-echo "$TUNNEL_PID" > "$TUNNEL_PID_FILE"
+if ! command -v cloudflared &> /dev/null; then
+    echo "       WARNING: cloudflared is not installed. Skipping tunnel."
+    echo "       Install: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/"
+    TUNNEL_URL=""
+else
+    cloudflared tunnel --url http://localhost:80 \
+        --no-autoupdate \
+        > "$TUNNEL_LOG" 2>&1 &
 
-# Wait for tunnel URL to appear
-sleep 5
-for i in $(seq 1 12); do
-    TUNNEL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$TUNNEL_LOG" 2>/dev/null | head -1)
-    if [ -n "$TUNNEL_URL" ]; then
-        break
-    fi
+    TUNNEL_PID=$!
+    echo "$TUNNEL_PID" > "$TUNNEL_PID_FILE"
+
+    # Verify cloudflared process is still running
     sleep 2
-done
+    if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
+        echo "       WARNING: cloudflared exited unexpectedly. Check tunnel.log for details."
+        TUNNEL_URL=""
+    else
+        # Wait for tunnel URL to appear
+        sleep 3
+        for i in $(seq 1 15); do
+            TUNNEL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$TUNNEL_LOG" 2>/dev/null | head -1)
+            if [ -n "$TUNNEL_URL" ]; then
+                break
+            fi
+            sleep 2
+        done
+    fi
+fi
 
 echo ""
 echo "══════════════════════════════════════════"

@@ -1,3 +1,4 @@
+use anyhow::Context;
 use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -59,6 +60,12 @@ pub async fn create_order(state: &AppState, params: CreateOrderParams) -> AppRes
     let now = Utc::now();
     let id = Uuid::new_v4();
 
+    // Generate a unique deposit address for the source chain.
+    let (deposit_address, metadata) =
+        generate_deposit_address(state, &params.source_chain, &order_id)
+            .await
+            .context("Failed to generate deposit address")?;
+
     let order = sqlx::query_as::<_, BridgeOrder>(
         r#"
         INSERT INTO bridge_orders (
@@ -73,12 +80,12 @@ pub async fn create_order(state: &AppState, params: CreateOrderParams) -> AppRes
         ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9,
-            $10, NULL, $11,
-            $12, $13, $14, $15,
-            $16, $17,
-            0, $18,
-            $19, $20,
-            $21, $22, $23
+            $10, $11, $12,
+            $13, $14, $15, $16,
+            $17, $18,
+            0, $19,
+            $20, $21,
+            $22, $23, $24
         )
         RETURNING *
         "#,
@@ -93,6 +100,7 @@ pub async fn create_order(state: &AppState, params: CreateOrderParams) -> AppRes
     .bind(conversion.to_amount)
     .bind(&to_currency)
     .bind(&params.dest_address)
+    .bind(&deposit_address)
     .bind(rate_data.rate)
     .bind(conversion.fee)
     .bind(conversion.fee_percent)
@@ -102,7 +110,7 @@ pub async fn create_order(state: &AppState, params: CreateOrderParams) -> AppRes
     .bind(OrderStatus::Created.step())
     .bind(confirmations_required)
     .bind(params.telegram_user_id)
-    .bind(serde_json::json!({}))
+    .bind(&metadata)
     .bind(expires_at)
     .bind(now)
     .bind(now)
@@ -240,16 +248,21 @@ pub async fn update_status(
     let step = new_status.step();
     let now = Utc::now();
 
+    // Use optimistic locking: only update if status hasn't changed since we read it.
     let updated = sqlx::query_as::<_, BridgeOrder>(
         "UPDATE bridge_orders SET status = $1, step = $2, updated_at = $3 \
-         WHERE order_id = $4 RETURNING *",
+         WHERE order_id = $4 AND status = $5 RETURNING *",
     )
     .bind(&new_status)
     .bind(step)
     .bind(now)
     .bind(order_id)
-    .fetch_one(&state.db)
-    .await?;
+    .bind(&current.status)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::Conflict(format!(
+        "Order {order_id} status changed concurrently; retry the operation"
+    )))?;
 
     // Audit log
     audit_service::log(
@@ -322,4 +335,67 @@ pub async fn cancel_order(state: &AppState, order_id: &str) -> AppResult<BridgeO
 fn generate_order_id() -> String {
     let bytes: [u8; 6] = rand::random();
     format!("br_{}", hex::encode(bytes))
+}
+
+/// Generate a unique deposit address for the given source chain.
+///
+/// Returns `(deposit_address, metadata)` where metadata may contain extra
+/// info such as the Monero subaddress index needed by the deposit monitor.
+async fn generate_deposit_address(
+    state: &AppState,
+    source_chain: &str,
+    order_id: &str,
+) -> anyhow::Result<(String, serde_json::Value)> {
+    match source_chain.to_uppercase().as_str() {
+        "XMR" => {
+            // Create a new Monero subaddress for this order.
+            let label = format!("order:{order_id}");
+            let (subaddr_index, address) = state
+                .monero_rpc
+                .create_subaddress(0, &label)
+                .await
+                .context("Failed to create Monero subaddress")?;
+            let metadata = serde_json::json!({ "subaddr_index": subaddr_index });
+            Ok((address, metadata))
+        }
+        "BTC" => {
+            // Generate a new Bitcoin receiving address.
+            let label = format!("order:{order_id}");
+            let address = state
+                .bitcoin_rpc
+                .get_new_address(&label)
+                .await
+                .context("Failed to generate Bitcoin address")?;
+            Ok((address, serde_json::json!({})))
+        }
+        "ETH" | "ARB" | "BASE" | "USDC" | "USDT" => {
+            // EVM chains: use a deterministic deposit address from the bridge hot wallet.
+            // The deposit monitor matches by amount + address for these chains.
+            let address = state
+                .config
+                .evm_deposit_address
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("EVM deposit address not configured"))?;
+            Ok((address, serde_json::json!({})))
+        }
+        "TON" => {
+            let address = state
+                .config
+                .ton_deposit_address
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("TON deposit address not configured"))?;
+            Ok((address, serde_json::json!({})))
+        }
+        "SOL" => {
+            let address = state
+                .config
+                .sol_deposit_address
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("SOL deposit address not configured"))?;
+            Ok((address, serde_json::json!({})))
+        }
+        other => Err(anyhow::anyhow!(
+            "Cannot generate deposit address for unsupported chain: {other}"
+        )),
+    }
 }

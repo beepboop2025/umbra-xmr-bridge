@@ -36,7 +36,7 @@ pub async fn log(
     let entity_id_str = entity_id.unwrap_or("");
 
     let content = format!(
-        "{action}{entity_type}{entity_id_str}{details_json}{actor}{prev_hash}"
+        "{action}|{entity_type}|{entity_id_str}|{details_json}|{actor}|{prev_hash}"
     );
 
     let mut hasher = Sha256::new();

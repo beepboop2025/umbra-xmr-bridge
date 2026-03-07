@@ -123,8 +123,10 @@ pub async fn get_rate(state: &AppState, direction: &str) -> AppResult<RateData> 
         AppError::Internal(format!("No USD price for {to_sym}"))
     })?;
 
-    if to_usd == 0.0 {
-        return Err(AppError::Internal("Denominator price is zero".into()));
+    if from_usd == 0.0 || to_usd == 0.0 {
+        return Err(AppError::Internal(format!(
+            "Invalid USD prices: {from_sym}=${from_usd}, {to_sym}=${to_usd}"
+        )));
     }
 
     let cross_rate = from_usd / to_usd;
@@ -451,7 +453,10 @@ async fn get_sparkline(db: &crate::db::Pool, direction: &str) -> Vec<f64> {
     .bind(direction)
     .fetch_all(db)
     .await
-    .unwrap_or_default();
+    .unwrap_or_else(|e| {
+        tracing::warn!(error = %e, direction, "Failed to fetch sparkline data");
+        Vec::new()
+    });
 
     rows.into_iter()
         .map(|r| r.rate.to_string().parse::<f64>().unwrap_or(0.0))

@@ -26,9 +26,11 @@ pub async fn process_withdrawal(state: AppState, order_id: String) -> Result<()>
     .await?
     .ok_or_else(|| anyhow!("Order {order_id} not found"))?;
 
-    if order.status != OrderStatus::Bridging {
+    // The order should be in Signing state (set by confirmation_checker when claiming).
+    // Also accept Bridging for backwards compatibility.
+    if order.status != OrderStatus::Signing && order.status != OrderStatus::Bridging {
         return Err(anyhow!(
-            "Order {order_id} is not in Bridging state (current: {:?})",
+            "Order {order_id} is not in Signing/Bridging state (current: {:?})",
             order.status
         ));
     }
@@ -429,20 +431,16 @@ async fn log_audit(
         "error": error,
     });
 
-    let result = sqlx::query(
-        r#"
-        INSERT INTO audit_log (action, entity_type, entity_id, details, actor, prev_hash, content_hash, created_at)
-        VALUES ($1, 'bridge_order', $2, $3, 'system', '', '', $4)
-        "#,
+    if let Err(e) = crate::services::audit_service::log(
+        &state.db,
+        action,
+        "bridge_order",
+        Some(&order.order_id),
+        details,
+        "system",
     )
-    .bind(action)
-    .bind(&order.order_id)
-    .bind(&details)
-    .bind(Utc::now())
-    .execute(&state.db)
-    .await;
-
-    if let Err(e) = result {
+    .await
+    {
         tracing::warn!(error = %e, "withdrawal_processor: failed to write audit log");
     }
 }

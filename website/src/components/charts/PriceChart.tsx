@@ -36,10 +36,10 @@ export function PriceChart({ source, dest, className }: PriceChartProps) {
       hour: '2-digit',
       minute: '2-digit',
     }),
-    rate: Number(p.rate.toFixed(8)),
+    rate: Number((p.rate ?? 0).toFixed(8)) || 0,
   }));
 
-  const isPositive = change24h >= 0;
+  const isPositive = (change24h ?? 0) >= 0;
 
   if (isLoading && data.length === 0) {
     return (
@@ -66,7 +66,7 @@ export function PriceChart({ source, dest, className }: PriceChartProps) {
               )}
             >
               {isPositive ? '+' : ''}
-              {change24h.toFixed(2)}%
+              {(change24h ?? 0).toFixed(2)}%
             </span>
           </div>
         </div>
