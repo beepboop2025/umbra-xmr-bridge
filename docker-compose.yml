@@ -7,7 +7,7 @@ services:
     environment:
       - DATABASE_URL=postgres://${POSTGRES_USER:-umbra}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-umbra}
       - REDIS_URL=redis://redis:6379
-      - SECRET_KEY=${SECRET_KEY:-change-me-in-production-64-chars-minimum-random-string}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       - CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:5173
       - RUST_LOG=umbra=info,tower_http=info
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
