@@ -1,3 +1,8 @@
+<!-- textura-banner -->
+<div align="center">
+  <a href="https://github.com/beepboop2025/umbra-xmr-bridge"><img src="./banner.svg" width="100%" alt="umbra-xmr-bridge" /></a>
+</div>
+
 <p align="center">
   <img src="public/monero.svg" width="40" alt="XMR" />&nbsp;&nbsp;
   <strong style="font-size: 2em;">UMBRA</strong>&nbsp;&nbsp;
