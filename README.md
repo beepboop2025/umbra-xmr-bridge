@@ -4,6 +4,11 @@
 </div>
 
 <p align="center">
+  <a href="https://github.com/beepboop2025/umbra-xmr-bridge/actions/workflows/tests.yml"><img src="https://github.com/beepboop2025/umbra-xmr-bridge/actions/workflows/tests.yml/badge.svg" alt="tests" /></a>
+  <img src="https://img.shields.io/badge/coverage-85%25-brightgreen" alt="coverage" />
+</p>
+
+<p align="center">
   <img src="public/monero.svg" width="40" alt="XMR" />&nbsp;&nbsp;
   <strong style="font-size: 2em;">UMBRA</strong>&nbsp;&nbsp;
   <img src="public/ton.svg" width="40" alt="TON" />

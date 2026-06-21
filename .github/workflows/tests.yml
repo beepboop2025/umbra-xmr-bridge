@@ -1,0 +1,34 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # Install everything needed for the test suite (vitest + jsdom + v8 coverage)
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests with coverage
+        run: npm run coverage
+
+      - name: Print coverage summary
+        if: always()
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            node -e "const c=require('./coverage/coverage-summary.json').total; console.log('Statement coverage: ' + c.statements.pct + '%'); console.log('Branch coverage:    ' + c.branches.pct + '%');"
+          else
+            echo "No coverage summary found."
+          fi
