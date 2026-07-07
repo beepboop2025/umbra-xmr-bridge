@@ -37,6 +37,10 @@ struct KeyResponse {
     algorithm: &'static str,
     public_key: String,
     key_id: String,
+    pq_algorithm: Option<&'static str>,
+    pq_public_key: Option<String>,
+    pq_key_id: Option<String>,
+    pq_context: Option<&'static str>,
     receipt_version: &'static str,
     canonicalization: &'static str,
     usage: &'static str,
@@ -44,13 +48,20 @@ struct KeyResponse {
 
 async fn proof_key(State(state): State<AppState>) -> Json<KeyResponse> {
     metrics::counter!("http_requests_total", "endpoint" => "proof_key").increment(1);
+    let att = &state.attestation;
     Json(KeyResponse {
         algorithm: "ed25519",
-        public_key: state.attestation.public_key_hex(),
-        key_id: state.attestation.key_id().to_string(),
+        public_key: att.public_key_hex(),
+        key_id: att.key_id().to_string(),
+        pq_algorithm: att.pq_enabled().then_some("ml-dsa-65 (FIPS 204)"),
+        pq_public_key: att.pq_public_key_hex().map(str::to_string),
+        pq_key_id: att.pq_key_id().map(str::to_string),
+        pq_context: att.pq_enabled().then_some("umbra-proof-v1"),
         receipt_version: attestation_service::RECEIPT_VERSION,
         canonicalization: "JSON, UTF-8, keys sorted lexicographically, no whitespace",
-        usage: "Verify receipt.payload and checkpoint tree heads. Pin this key out-of-band.",
+        usage: "Verify receipt.payload and checkpoint tree heads. Pin these keys out-of-band. \
+                Both signatures cover the same canonical bytes; ML-DSA protects the archive \
+                against a future quantum adversary.",
     })
 }
 
@@ -66,6 +77,12 @@ struct ReceiptEnvelope {
     signature: String,
     public_key: String,
     key_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signature_pq: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pq_public_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pq_key_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -92,6 +109,9 @@ async fn order_receipts(
             signature: a.signature,
             public_key: a.public_key,
             key_id: a.key_id,
+            signature_pq: a.signature_pq,
+            pq_public_key: a.pq_public_key,
+            pq_key_id: a.pq_key_id,
         })
         .collect::<Vec<_>>();
 

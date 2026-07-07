@@ -57,6 +57,8 @@ pub struct Config {
 
     // Proof layer
     pub attestation_secret_key: Option<String>,
+    pub attestation_pq_seed: Option<String>,
+    pub pq_signatures_enabled: bool,
     pub transparency_seal_interval_secs: u64,
     pub canary_statement: String,
 
@@ -120,6 +122,8 @@ impl Config {
             rate_limit_ws_per_ip: env("RATE_LIMIT_WS", "5").parse().unwrap_or(5),
 
             attestation_secret_key: env_opt("ATTESTATION_SECRET_KEY"),
+            attestation_pq_seed: env_opt("ATTESTATION_PQ_SEED"),
+            pq_signatures_enabled: env("PQ_SIGNATURES_ENABLED", "true").parse().unwrap_or(true),
             transparency_seal_interval_secs: env("TRANSPARENCY_SEAL_INTERVAL_SECS", "300")
                 .parse()
                 .unwrap_or(300),

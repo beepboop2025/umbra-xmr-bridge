@@ -14,8 +14,21 @@
 //! `serde_json::Value` serialization already satisfies this (its map is a
 //! `BTreeMap`), and every verifier we ship (browser, offline HTML, Python CLI)
 //! re-canonicalizes the same way before checking the signature.
+//!
+//! # Post-quantum hybrid
+//!
+//! Every artifact is additionally signed with **ML-DSA-65** (FIPS 204,
+//! CRYSTALS-Dilithium) over the *same canonical bytes*. Receipts are archival
+//! evidence with a multi-decade shelf life; a future quantum adversary who
+//! breaks Ed25519 could otherwise forge "historical" receipts and rewrite the
+//! bridge's past. The two signatures are independent — verifiers check
+//! Ed25519 today (cheap, universal) while the ML-DSA signature keeps the
+//! archive sound in a post-quantum world. Forging a receipt requires breaking
+//! BOTH schemes.
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use fips204::ml_dsa_65;
+use fips204::traits::{KeyGen, SerDes, Signer as PqSigner, Verifier as PqVerifier};
 use sha2::{Digest, Sha256};
 
 use crate::error::{AppError, AppResult};
@@ -24,11 +37,37 @@ use crate::models::order::BridgeOrder;
 pub const RECEIPT_VERSION: &str = "1";
 const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
+/// Post-quantum (ML-DSA-65) signing identity.
+struct PqIdentity {
+    signing_key: ml_dsa_65::PrivateKey,
+    public_key_hex: String,
+    key_id: String,
+}
+
 /// Holds the bridge's attestation identity. Constructed once at startup.
 pub struct AttestationService {
     signing_key: SigningKey,
     verifying_key: VerifyingKey,
     key_id: String,
+    pq: Option<PqIdentity>,
+}
+
+fn derive_seed(explicit_hex: Option<&str>, domain: &[u8], app_secret: &str, var: &str) -> anyhow::Result<[u8; 32]> {
+    match explicit_hex {
+        Some(hex_seed) => {
+            let bytes = hex::decode(hex_seed.trim())
+                .map_err(|_| anyhow::anyhow!("{var} must be hex"))?;
+            bytes
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("{var} must be 32 bytes (64 hex chars)"))
+        }
+        None => {
+            let mut h = Sha256::new();
+            h.update(domain);
+            h.update(app_secret.as_bytes());
+            Ok(h.finalize().into())
+        }
+    }
 }
 
 impl AttestationService {
@@ -36,30 +75,59 @@ impl AttestationService {
     /// derived deterministically from the app secret so restarts keep the
     /// same identity: seed = SHA-256("umbra/attestation/v1:" || SECRET_KEY).
     pub fn new(seed_hex: Option<&str>, app_secret: &str) -> anyhow::Result<Self> {
-        let seed: [u8; 32] = match seed_hex {
-            Some(hex_seed) => {
-                let bytes = hex::decode(hex_seed.trim())
-                    .map_err(|_| anyhow::anyhow!("ATTESTATION_SECRET_KEY must be hex"))?;
-                bytes
-                    .try_into()
-                    .map_err(|_| anyhow::anyhow!("ATTESTATION_SECRET_KEY must be 32 bytes (64 hex chars)"))?
-            }
-            None => {
-                let mut h = Sha256::new();
-                h.update(b"umbra/attestation/v1:");
-                h.update(app_secret.as_bytes());
-                h.finalize().into()
-            }
-        };
+        Self::with_pq(seed_hex, None, app_secret, true)
+    }
+
+    /// Full constructor. `pq_seed_hex` seeds the ML-DSA-65 keypair (derived
+    /// from the app secret when absent); `pq_enabled = false` skips the
+    /// post-quantum layer entirely.
+    pub fn with_pq(
+        seed_hex: Option<&str>,
+        pq_seed_hex: Option<&str>,
+        app_secret: &str,
+        pq_enabled: bool,
+    ) -> anyhow::Result<Self> {
+        let seed = derive_seed(
+            seed_hex,
+            b"umbra/attestation/v1:",
+            app_secret,
+            "ATTESTATION_SECRET_KEY",
+        )?;
 
         let signing_key = SigningKey::from_bytes(&seed);
         let verifying_key = signing_key.verifying_key();
         let key_id = derive_key_id(&verifying_key);
 
+        let pq = if pq_enabled {
+            use rand::SeedableRng;
+            let pq_seed = derive_seed(
+                pq_seed_hex,
+                b"umbra/attestation-pq/v1:",
+                app_secret,
+                "ATTESTATION_PQ_SEED",
+            )?;
+            // Deterministic keygen: the seed fully determines the keypair via
+            // a seeded CSPRNG, so restarts keep the same PQ identity.
+            let mut rng = rand::rngs::StdRng::from_seed(pq_seed);
+            let (pq_pk, pq_sk) = ml_dsa_65::KG::try_keygen_with_rng(&mut rng)
+                .map_err(|e| anyhow::anyhow!("ML-DSA keygen failed: {e}"))?;
+            let pk_bytes = pq_pk.into_bytes();
+            let public_key_hex = hex::encode(pk_bytes);
+            let key_id = hex::encode(&Sha256::digest(pk_bytes)[..8]);
+            Some(PqIdentity {
+                signing_key: pq_sk,
+                public_key_hex,
+                key_id,
+            })
+        } else {
+            None
+        };
+
         Ok(Self {
             signing_key,
             verifying_key,
             key_id,
+            pq,
         })
     }
 
@@ -96,7 +164,60 @@ impl AttestationService {
         let signature = self.sign(canonical.as_bytes());
         (hash, signature)
     }
+
+    // -- Post-quantum layer ------------------------------------------------
+
+    pub fn pq_enabled(&self) -> bool {
+        self.pq.is_some()
+    }
+
+    pub fn pq_public_key_hex(&self) -> Option<&str> {
+        self.pq.as_ref().map(|p| p.public_key_hex.as_str())
+    }
+
+    pub fn pq_key_id(&self) -> Option<&str> {
+        self.pq.as_ref().map(|p| p.key_id.as_str())
+    }
+
+    /// ML-DSA-65 signature over `message` (hex, 6618 chars). Returns None
+    /// when the PQ layer is disabled.
+    pub fn sign_pq(&self, message: &[u8]) -> Option<String> {
+        let pq = self.pq.as_ref()?;
+        match pq.signing_key.try_sign(message, PQ_CONTEXT) {
+            Ok(sig) => Some(hex::encode(sig)),
+            Err(e) => {
+                tracing::error!(error = %e, "attestation: ML-DSA signing failed");
+                None
+            }
+        }
+    }
+
+    /// Verify an ML-DSA-65 hex signature against an arbitrary hex public key.
+    pub fn verify_pq(public_key_hex: &str, message: &[u8], signature_hex: &str) -> bool {
+        let Ok(pk_bytes) = hex::decode(public_key_hex) else {
+            return false;
+        };
+        let pk_array: [u8; ml_dsa_65::PK_LEN] = match pk_bytes.try_into() {
+            Ok(a) => a,
+            Err(_) => return false,
+        };
+        let Ok(pk) = ml_dsa_65::PublicKey::try_from_bytes(pk_array) else {
+            return false;
+        };
+        let Ok(sig_bytes) = hex::decode(signature_hex) else {
+            return false;
+        };
+        let sig: [u8; ml_dsa_65::SIG_LEN] = match sig_bytes.try_into() {
+            Ok(a) => a,
+            Err(_) => return false,
+        };
+        pk.verify(message, &sig, PQ_CONTEXT)
+    }
 }
+
+/// FIPS 204 context string: domain-separates Umbra signatures from any other
+/// use of the same key.
+const PQ_CONTEXT: &[u8] = b"umbra-proof-v1";
 
 /// `key_id` is the first 8 bytes (16 hex chars) of SHA-256(public_key),
 /// letting verifiers detect key rotation at a glance.
@@ -126,6 +247,9 @@ pub struct Attestation {
     pub signature: String,
     pub public_key: String,
     pub key_id: String,
+    pub signature_pq: Option<String>,
+    pub pq_public_key: Option<String>,
+    pub pq_key_id: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -187,13 +311,16 @@ pub async fn attest(
     });
 
     let (payload_hash, signature) = service.sign_json(&payload);
+    let canonical = canonical_json(&payload);
+    let signature_pq = service.sign_pq(canonical.as_bytes());
 
     let row = sqlx::query_as::<_, Attestation>(
         r#"
         INSERT INTO order_attestations
             (order_id, sequence, event, payload, payload_hash,
-             prev_receipt_hash, signature, public_key, key_id, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             prev_receipt_hash, signature, public_key, key_id,
+             signature_pq, pq_public_key, pq_key_id, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING *
         "#,
     )
@@ -206,6 +333,9 @@ pub async fn attest(
     .bind(&signature)
     .bind(service.public_key_hex())
     .bind(service.key_id())
+    .bind(&signature_pq)
+    .bind(service.pq_public_key_hex())
+    .bind(service.pq_key_id())
     .bind(timestamp)
     .fetch_one(db)
     .await?;
@@ -321,6 +451,43 @@ mod tests {
                             5f5ba8140d119bc64780b928c7f9780c6a8cbd3f44c046ef8afd71f4b812250f"
             .replace(char::is_whitespace, "");
         assert_eq!(svc.sign(canonical.as_bytes()), expected_sig);
+    }
+
+    #[test]
+    fn pq_hybrid_sign_verify_round_trip() {
+        let svc = service();
+        assert!(svc.pq_enabled());
+        let pk = svc.pq_public_key_hex().unwrap().to_string();
+        assert_eq!(pk.len(), ml_dsa_65::PK_LEN * 2);
+        assert_eq!(svc.pq_key_id().unwrap().len(), 16);
+
+        let msg = b"archival evidence outlives the curve";
+        let sig = svc.sign_pq(msg).unwrap();
+        assert_eq!(sig.len(), ml_dsa_65::SIG_LEN * 2);
+        assert!(AttestationService::verify_pq(&pk, msg, &sig));
+        assert!(!AttestationService::verify_pq(&pk, b"tampered", &sig));
+        assert!(!AttestationService::verify_pq(&pk, msg, &sig.replacen('0', "1", 4)));
+        assert!(!AttestationService::verify_pq("deadbeef", msg, &sig));
+    }
+
+    #[test]
+    fn pq_keygen_is_deterministic_and_independent_of_ed25519() {
+        let a = service();
+        let b = service();
+        assert_eq!(a.pq_public_key_hex(), b.pq_public_key_hex());
+        // Distinct explicit seeds produce distinct PQ identities.
+        let c = AttestationService::with_pq(None, Some(&"33".repeat(32)), "test-secret-key-at-least-32-chars!!", true).unwrap();
+        assert_ne!(a.pq_public_key_hex(), c.pq_public_key_hex());
+        // ...without touching the Ed25519 identity.
+        assert_eq!(a.public_key_hex(), c.public_key_hex());
+    }
+
+    #[test]
+    fn pq_can_be_disabled() {
+        let svc = AttestationService::with_pq(None, None, "some-secret", false).unwrap();
+        assert!(!svc.pq_enabled());
+        assert!(svc.sign_pq(b"x").is_none());
+        assert!(svc.pq_public_key_hex().is_none());
     }
 
     #[test]

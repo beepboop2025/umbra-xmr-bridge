@@ -35,6 +35,9 @@ pub struct Checkpoint {
     pub signature: String,
     pub public_key: String,
     pub key_id: String,
+    pub signature_pq: Option<String>,
+    pub pq_public_key: Option<String>,
+    pub pq_key_id: Option<String>,
     pub sealed_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -167,12 +170,14 @@ pub async fn seal(
 
     let payload = tree_head_payload(tree_size, &root_hash, &prev_root, service.key_id(), &sealed_at);
     let (_hash, signature) = service.sign_json(&payload);
+    let signature_pq = service.sign_pq(canonical_json(&payload).as_bytes());
 
     let cp = sqlx::query_as::<_, Checkpoint>(
         r#"
         INSERT INTO transparency_checkpoints
-            (tree_size, root_hash, prev_root_hash, signature, public_key, key_id, sealed_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+            (tree_size, root_hash, prev_root_hash, signature, public_key, key_id,
+             signature_pq, pq_public_key, pq_key_id, sealed_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (tree_size) DO NOTHING
         RETURNING *
         "#,
@@ -183,6 +188,9 @@ pub async fn seal(
     .bind(&signature)
     .bind(service.public_key_hex())
     .bind(service.key_id())
+    .bind(&signature_pq)
+    .bind(service.pq_public_key_hex())
+    .bind(service.pq_key_id())
     .bind(sealed_at)
     .fetch_optional(db)
     .await?;

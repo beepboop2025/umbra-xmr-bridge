@@ -121,15 +121,22 @@ async fn main() {
 
     tracing::info!("Blockchain RPC clients initialized");
 
-    // Attestation identity (signed receipts + transparency checkpoints)
+    // Attestation identity (signed receipts + transparency checkpoints).
+    // Hybrid: Ed25519 (online verification) + ML-DSA-65 (post-quantum archive).
     let attestation = Arc::new(
-        AttestationService::new(config.attestation_secret_key.as_deref(), &config.secret_key)
-            .expect("Failed to initialize attestation key"),
+        AttestationService::with_pq(
+            config.attestation_secret_key.as_deref(),
+            config.attestation_pq_seed.as_deref(),
+            &config.secret_key,
+            config.pq_signatures_enabled,
+        )
+        .expect("Failed to initialize attestation keys"),
     );
     tracing::info!(
         key_id = %attestation.key_id(),
         public_key = %attestation.public_key_hex(),
-        "Proof layer initialized — publish this key so users can pin it"
+        pq_key_id = attestation.pq_key_id().unwrap_or("disabled"),
+        "Proof layer initialized — publish these keys so users can pin them"
     );
 
     let state = AppState {
