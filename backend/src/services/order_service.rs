@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{confirmations_for_chain, BridgeOrder, OrderStatus};
-use crate::services::{audit_service, pubsub, rate_service};
+use crate::services::{attestation_service, audit_service, pubsub, rate_service, sentinel};
 use crate::AppState;
 
 // ---------------------------------------------------------------------------
@@ -33,6 +33,10 @@ pub struct CreateOrderParams {
 /// 4. Inserts into the DB.
 /// 5. Publishes creation event via Redis pubsub.
 pub async fn create_order(state: &AppState, params: CreateOrderParams) -> AppResult<BridgeOrder> {
+    // Circuit breaker: refuse new intake while the sentinel is tripped.
+    // In-flight orders continue to settle; only new exposure is blocked.
+    sentinel::ensure_accepting_orders(&state.redis).await?;
+
     let direction = format!("{}_TO_{}", params.source_chain, params.dest_chain);
 
     // Fetch live rate
@@ -131,6 +135,10 @@ pub async fn create_order(state: &AppState, params: CreateOrderParams) -> AppRes
         "system",
     )
     .await?;
+
+    // Signed receipt: the order's birth certificate.
+    attestation_service::attest_or_warn(&state.db, &state.attestation, &order, "order_created")
+        .await;
 
     // Publish to WebSocket subscribers
     let mut conn = state.redis.clone();
@@ -277,6 +285,14 @@ pub async fn update_status(
         "system",
     )
     .await?;
+
+    // Signed receipt for this transition. The updated row carries the latest
+    // tx hashes, so receipts for `sending`/`completed` bind the actual
+    // withdrawal transaction.
+    let event = format!("status_{}", serde_json::to_string(&new_status)
+        .unwrap_or_default()
+        .trim_matches('"'));
+    attestation_service::attest_or_warn(&state.db, &state.attestation, &updated, &event).await;
 
     // Publish status update
     let mut conn = state.redis.clone();

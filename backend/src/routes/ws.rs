@@ -15,7 +15,7 @@ use crate::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/v1/ws/order/{order_id}", get(ws_order))
+        .route("/v1/ws/order/:order_id", get(ws_order))
         .route("/v1/ws/rates", get(ws_rates))
 }
 

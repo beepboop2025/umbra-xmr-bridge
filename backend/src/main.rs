@@ -28,6 +28,7 @@ use crate::blockchain::solana::SolanaClient;
 use crate::blockchain::ton::TonClient;
 use crate::config::Config;
 use crate::mpc::coordinator::MpcCoordinator;
+use crate::services::attestation_service::AttestationService;
 use crate::services::evm_router::EvmRpcRouter;
 
 /// Shared application state accessible in all handlers.
@@ -47,6 +48,9 @@ pub struct AppState {
 
     // MPC threshold signing
     pub mpc_coordinator: Arc<Mutex<MpcCoordinator>>,
+
+    // Proof layer: Ed25519 identity for receipts, checkpoints, and the canary
+    pub attestation: Arc<AttestationService>,
 }
 
 #[tokio::main]
@@ -117,6 +121,17 @@ async fn main() {
 
     tracing::info!("Blockchain RPC clients initialized");
 
+    // Attestation identity (signed receipts + transparency checkpoints)
+    let attestation = Arc::new(
+        AttestationService::new(config.attestation_secret_key.as_deref(), &config.secret_key)
+            .expect("Failed to initialize attestation key"),
+    );
+    tracing::info!(
+        key_id = %attestation.key_id(),
+        public_key = %attestation.public_key_hex(),
+        "Proof layer initialized — publish this key so users can pin it"
+    );
+
     let state = AppState {
         config: Arc::new(config.clone()),
         db: db_pool,
@@ -128,6 +143,7 @@ async fn main() {
         ton_client,
         solana_rpc,
         mpc_coordinator,
+        attestation,
     };
 
     // Spawn background tasks
@@ -149,6 +165,7 @@ async fn main() {
         .merge(routes::orders::router())
         .merge(routes::admin::router())
         .merge(routes::ws::router())
+        .merge(routes::proof::router())
         .route("/metrics", axum::routing::get(move || async move { metrics_handle.render() }))
         .layer(middleware::security::SecurityHeadersLayer)
         .layer(CompressionLayer::new())
