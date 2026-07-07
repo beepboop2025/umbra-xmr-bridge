@@ -111,6 +111,8 @@ Three independent verifiers ship in this repo, all validated against RFC 8032 te
 
 Pin the bridge's public key (`GET /v1/proof/key`) out-of-band once; from then on, every receipt either verifies or it doesn't. Telegram users get the same via `/receipt <order_id>` and `/trust`.
 
+The full wire-format specification — exact canonical forms, algorithms, threat model, and test vectors for building your own verifier — lives in [`docs/PROOF_LAYER.md`](docs/PROOF_LAYER.md).
+
 ### Supported Chains
 
 | Chain | Ticker | Type |

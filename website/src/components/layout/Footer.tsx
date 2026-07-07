@@ -8,6 +8,8 @@ const footerLinks = {
     { label: 'Bridge', href: '/bridge' },
     { label: 'Explorer', href: '/explorer' },
     { label: 'Dashboard', href: '/dashboard' },
+    { label: 'Verify', href: '/verify' },
+    { label: 'Transparency', href: '/transparency' },
     { label: 'API Docs', href: '#' },
   ],
   Resources: [
