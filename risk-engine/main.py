@@ -11,6 +11,7 @@ Endpoints:
     GET  /risk/liquidity    — Liquidity depth across chains
     POST /risk/anomaly      — Detect anomalies in recent swap patterns
     POST /v1/risk/anomaly   — Statistical drain / withdrawal anomaly scores
+    POST /v1/risk/anomaly/ml — Isolation Forest scores over order-flow features
     GET  /health            — Liveness probe
 """
 
@@ -25,6 +26,7 @@ from pydantic_settings import BaseSettings
 from models.exposure import ExposureTracker
 from models.liquidity import LiquidityAnalyzer
 from services.anomaly import drain_pattern_score, round_amount_ratio, zscore_anomaly
+from services.isolation_forest import IsolationForest, order_features
 from services.risk_scorer import RiskScorer
 
 
@@ -105,6 +107,20 @@ class WithdrawalAnomalyRequest(BaseModel):
     withdrawal_amounts: list[float]
     window_minutes: float = 60.0
     historical_amounts: list[float] = []
+
+
+class OrderPoint(BaseModel):
+    """One order described by the raw attributes the forest featurizes."""
+
+    amount: float
+    minutes_since_prev: float
+    hour_of_day: float
+    direction_frequency: float
+
+
+class MlAnomalyRequest(BaseModel):
+    historical: list[OrderPoint]
+    current: list[OrderPoint]
 
 
 # ---------------------------------------------------------------------------
@@ -216,3 +232,40 @@ async def score_withdrawal_anomaly(req: WithdrawalAnomalyRequest):
         "anomalous": anomalous,
         "score": score,
     }
+
+
+@app.post("/v1/risk/anomaly/ml", dependencies=[Depends(verify_api_key)])
+async def score_ml_anomaly(req: MlAnomalyRequest):
+    """Isolation Forest anomaly scores for current orders vs recent history.
+
+    Unsupervised: the forest is fitted on the caller-supplied history each
+    request (fast for the few hundred rows the sentinel sends), so there is
+    no model state to go stale or be poisoned silently — the training window
+    is explicit in every call.
+    """
+    # Height-limited trees compress the score range, so the practical
+    # anomaly cutoff sits a little below the paper's asymptotic 0.7.
+    threshold = 0.65
+    if len(req.historical) < 20:
+        # Too little history to say anything meaningful; never trip on noise.
+        return {"scores": [], "max_score": 0.0, "anomalous": False,
+                "threshold": threshold, "reason": "insufficient history (<20 orders)"}
+    if not req.current:
+        return {"scores": [], "max_score": 0.0, "anomalous": False, "threshold": threshold}
+
+    def feats(p: OrderPoint) -> list[float]:
+        return order_features(p.amount, p.minutes_since_prev, p.hour_of_day,
+                              p.direction_frequency)
+
+    forest = IsolationForest(n_trees=100, sample_size=128, seed=7)
+    forest.fit([feats(p) for p in req.historical])
+    scores = [round(forest.score_one(feats(p)), 4) for p in req.current]
+    max_score = max(scores)
+
+    return {
+        "scores": scores,
+        "max_score": max_score,
+        "anomalous": max_score >= threshold,
+        "threshold": threshold,
+    }
+

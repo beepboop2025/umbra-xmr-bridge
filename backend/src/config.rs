@@ -70,6 +70,10 @@ pub struct Config {
     pub sentinel_rate_divergence_percent: f64,
     pub sentinel_outflow_caps: String,
 
+    // Optional ML anomaly guard (Isolation Forest via the risk engine)
+    pub risk_engine_url: Option<String>,
+    pub risk_engine_api_key: Option<String>,
+
     // CORS
     pub cors_origins: Vec<String>,
 }
@@ -148,6 +152,9 @@ impl Config {
                 .parse()
                 .unwrap_or(5.0),
             sentinel_outflow_caps: env("SENTINEL_OUTFLOW_CAPS", ""),
+
+            risk_engine_url: env_opt("RISK_ENGINE_URL"),
+            risk_engine_api_key: env_opt("RISK_ENGINE_API_KEY"),
 
             cors_origins: env("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")
                 .split(',')

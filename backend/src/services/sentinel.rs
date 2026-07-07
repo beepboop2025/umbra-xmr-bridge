@@ -16,6 +16,13 @@
 //!    A poisoned oracle mints free money; two honest sources rarely disagree
 //!    by more than a few percent.
 //!
+//! A fifth, ML-based guard is optional: when `RISK_ENGINE_URL` is set, each
+//! cycle sends the last hour's order flow to the risk engine's Isolation
+//! Forest (`/v1/risk/anomaly/ml`), which scores *combinations* no threshold
+//! can express — a large amount at an odd hour on a rare corridor placed
+//! seconds after the previous order. The guard fails open: a risk-engine
+//! outage never blocks the bridge.
+//!
 //! A trip *pauses order creation only* — in-flight swaps keep settling, so a
 //! false positive costs minutes of intake, not user funds. Every trip, pause,
 //! and resume lands in the sentinel_events table, the tamper-evident audit
@@ -386,6 +393,137 @@ pub fn evaluate(snapshot: &Snapshot, cfg: &GuardConfig) -> Vec<Trip> {
     }
 
     trips
+}
+
+// ---------------------------------------------------------------------------
+// ML anomaly guard (optional; calls the risk engine's Isolation Forest)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Serialize)]
+struct MlOrderPoint {
+    amount: f64,
+    minutes_since_prev: f64,
+    hour_of_day: f64,
+    direction_frequency: f64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct MlAnomalyResponse {
+    max_score: f64,
+    anomalous: bool,
+    threshold: f64,
+}
+
+/// Rows needed to featurize order flow for the forest.
+#[derive(sqlx::FromRow)]
+struct FlowRow {
+    amount: Option<f64>,
+    minutes_since_prev: Option<f64>,
+    hour_of_day: Option<f64>,
+    direction_frequency: Option<f64>,
+}
+
+async fn load_order_flow(
+    db: &crate::db::Pool,
+    interval: &str,
+) -> AppResult<Vec<MlOrderPoint>> {
+    // Featurize in SQL: per-order gap to the previous order, hour of day,
+    // and the corridor's share of the window's traffic.
+    let query = format!(
+        "WITH windowed AS ( \
+            SELECT from_amount::float8 AS amount, \
+                   EXTRACT(EPOCH FROM (created_at - LAG(created_at) OVER (ORDER BY created_at))) / 60.0 AS minutes_since_prev, \
+                   EXTRACT(HOUR FROM created_at)::float8 \
+                     + EXTRACT(MINUTE FROM created_at)::float8 / 60.0 AS hour_of_day, \
+                   COUNT(*) OVER (PARTITION BY direction)::float8 \
+                     / GREATEST(COUNT(*) OVER (), 1)::float8 AS direction_frequency \
+              FROM bridge_orders \
+             WHERE created_at > NOW() - INTERVAL '{interval}' \
+        ) SELECT * FROM windowed"
+    );
+    let rows = sqlx::query_as::<_, FlowRow>(&query).fetch_all(db).await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| MlOrderPoint {
+            amount: r.amount.unwrap_or(0.0),
+            minutes_since_prev: r.minutes_since_prev.unwrap_or(240.0).max(0.0),
+            hour_of_day: r.hour_of_day.unwrap_or(12.0),
+            direction_frequency: r.direction_frequency.unwrap_or(0.5),
+        })
+        .collect())
+}
+
+/// Ask the risk engine's Isolation Forest whether the last hour of order flow
+/// looks anomalous against the preceding week. Returns a Trip when it does.
+/// Fails open on any transport or schema error.
+pub async fn ml_anomaly_check(state: &crate::AppState) -> Option<Trip> {
+    let base_url = state.config.risk_engine_url.as_deref()?;
+
+    let (historical, current) = match (
+        load_order_flow(&state.db, "7 days").await,
+        load_order_flow(&state.db, "1 hour").await,
+    ) {
+        (Ok(h), Ok(c)) => (h, c),
+        (h, c) => {
+            tracing::warn!(
+                historical_err = h.err().map(|e| e.to_string()),
+                current_err = c.err().map(|e| e.to_string()),
+                "sentinel: ml guard could not load order flow"
+            );
+            return None;
+        }
+    };
+    if current.is_empty() {
+        return None;
+    }
+
+    let url = format!("{}/v1/risk/anomaly/ml", base_url.trim_end_matches('/'));
+    let mut req = state
+        .http_client
+        .post(&url)
+        .timeout(std::time::Duration::from_secs(5))
+        .json(&serde_json::json!({ "historical": historical, "current": current }));
+    if let Some(key) = &state.config.risk_engine_api_key {
+        req = req.header("X-API-Key", key);
+    }
+
+    let resp: MlAnomalyResponse = match req.send().await {
+        Ok(r) if r.status().is_success() => match r.json().await {
+            Ok(body) => body,
+            Err(e) => {
+                tracing::warn!(error = %e, "sentinel: ml guard bad response body");
+                return None;
+            }
+        },
+        Ok(r) => {
+            tracing::warn!(status = %r.status(), "sentinel: ml guard non-success response");
+            return None;
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "sentinel: ml guard unreachable (failing open)");
+            metrics::counter!("sentinel_ml_guard_errors_total").increment(1);
+            return None;
+        }
+    };
+
+    metrics::gauge!("sentinel_ml_anomaly_score").set(resp.max_score);
+    if !resp.anomalous {
+        return None;
+    }
+
+    Some(Trip {
+        check: "ml_anomaly".into(),
+        reason: format!(
+            "Isolation Forest flagged current order flow: max anomaly score {:.3} \
+             (threshold {:.2}) vs 7-day baseline",
+            resp.max_score, resp.threshold
+        ),
+        details: serde_json::json!({
+            "max_score": resp.max_score,
+            "threshold": resp.threshold,
+            "current_orders": current.len(),
+        }),
+    })
 }
 
 /// Read a fresh snapshot from the database.

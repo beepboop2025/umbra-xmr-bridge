@@ -1,3 +1,12 @@
+import type {
+  Canary,
+  CheckpointEnvelope,
+  Checkpoint,
+  ProofKey,
+  ProofStatus,
+  ReceiptBundle,
+} from '@/lib/proof';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface ApiError {
@@ -195,6 +204,33 @@ class ApiClient {
       orders: OrderDetail[];
       total: number;
     }>(`/api/admin/orders?${searchParams}`);
+  }
+
+  // Proof Layer endpoints
+  async getProofKey() {
+    return this.request<ProofKey>('/v1/proof/key');
+  }
+
+  async getProofReceipts(orderId: string) {
+    return this.request<ReceiptBundle>(
+      `/v1/proof/receipt/${encodeURIComponent(orderId)}`
+    );
+  }
+
+  async getLatestCheckpoint() {
+    return this.request<CheckpointEnvelope>('/v1/proof/checkpoint/latest');
+  }
+
+  async getCheckpoints(limit = 20) {
+    return this.request<Checkpoint[]>(`/v1/proof/checkpoints?limit=${limit}`);
+  }
+
+  async getProofStatus() {
+    return this.request<ProofStatus>('/v1/proof/status');
+  }
+
+  async getCanary() {
+    return this.request<Canary>('/v1/proof/canary');
   }
 
   // Wallet endpoints

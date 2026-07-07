@@ -40,8 +40,16 @@ pub async fn run(state: AppState) {
             }
         };
 
-        let trips = sentinel::evaluate(&snapshot, &cfg);
+        let mut trips = sentinel::evaluate(&snapshot, &cfg);
         metrics::counter!("sentinel_evaluations_total").increment(1);
+
+        // Optional fifth guard: Isolation Forest via the risk engine.
+        // Only consulted when the cheap invariant guards are quiet.
+        if trips.is_empty() {
+            if let Some(trip) = sentinel::ml_anomaly_check(&state).await {
+                trips.push(trip);
+            }
+        }
 
         if let Some(trip) = trips.first() {
             if let Err(e) = sentinel::pause(
