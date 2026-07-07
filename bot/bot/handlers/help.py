@@ -18,6 +18,8 @@ HELP_TEXT = (
     "/bridge  \u2014  Start a new swap (also via menu)\n"
     "/rate  \u2014  View current exchange rates\n"
     "/status <code>ORDER_ID</code>  \u2014  Check order status\n"
+    "/receipt <code>ORDER_ID</code>  \u2014  Signed proof receipts for an order\n"
+    "/trust  \u2014  Bridge trust & circuit-breaker status\n"
     "/history  \u2014  Your last 10 orders\n"
     "/settings  \u2014  Adjust slippage tolerance\n"
     "/help  \u2014  This help message\n"

@@ -365,6 +365,34 @@ mod tests {
         assert!(!verify_consistency(7, 7, &r, &r, &[leaf_hash(b"x")]));
     }
 
+    /// Not a test: emits a sample inclusion proof as JSON for cross-checking
+    /// the Python/JS verifiers. Run with:
+    ///   cargo test print_sample_inclusion_proof -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn print_sample_inclusion_proof() {
+        use sha2::{Digest, Sha256};
+        // Leaves shaped like audit_log.content_hash values (hex strings).
+        let leaves: Vec<Vec<u8>> = (0..21)
+            .map(|i| hex::encode(Sha256::digest(format!("audit-entry-{i}"))).into_bytes())
+            .collect();
+        let index = 13usize;
+        let r = root(&leaves);
+        let proof = inclusion_proof(&leaves, index).unwrap();
+        println!(
+            "{}",
+            serde_json::json!({
+                "audit_id": index + 1,
+                "leaf_index": index,
+                "leaf_data": String::from_utf8(leaves[index].clone()).unwrap(),
+                "leaf_hash": hash_to_hex(&leaf_hash(&leaves[index])),
+                "tree_size": leaves.len(),
+                "root_hash": hash_to_hex(&r),
+                "proof": proof.iter().map(hash_to_hex).collect::<Vec<_>>(),
+            })
+        );
+    }
+
     #[test]
     fn hex_round_trip() {
         let h = leaf_hash(b"hello");

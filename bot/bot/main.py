@@ -16,7 +16,7 @@ from aiogram.types import BotCommand
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
 from bot.config import settings
-from bot.handlers import admin, bridge, help as help_, history, rates, settings as settings_, start, status
+from bot.handlers import admin, bridge, help as help_, history, rates, receipt, settings as settings_, start, status
 from bot.middlewares.logging import LoggingMiddleware
 from bot.middlewares.rate_limit import RateLimitMiddleware
 from bot.services.api_client import api_client
@@ -50,6 +50,7 @@ dp.include_routers(
     start.router,
     bridge.router,
     status.router,
+    receipt.router,
     history.router,
     rates.router,
     settings_.router,
@@ -73,6 +74,8 @@ BOT_COMMANDS = [
     BotCommand(command="bridge", description="Start a new swap"),
     BotCommand(command="rate", description="Current exchange rates"),
     BotCommand(command="status", description="Check order status"),
+    BotCommand(command="receipt", description="Signed proof receipts for an order"),
+    BotCommand(command="trust", description="Bridge trust & circuit-breaker status"),
     BotCommand(command="history", description="Your order history"),
     BotCommand(command="settings", description="Adjust slippage"),
     BotCommand(command="help", description="Help & FAQ"),
