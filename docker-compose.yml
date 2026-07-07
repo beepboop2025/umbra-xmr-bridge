@@ -19,6 +19,16 @@ services:
       - EVM_DEPOSIT_ADDRESS=${EVM_DEPOSIT_ADDRESS:-}
       - TON_DEPOSIT_ADDRESS=${TON_DEPOSIT_ADDRESS:-}
       - SOL_DEPOSIT_ADDRESS=${SOL_DEPOSIT_ADDRESS:-}
+      # Proof layer: set explicit seeds in production to separate key custody
+      - ATTESTATION_SECRET_KEY=${ATTESTATION_SECRET_KEY:-}
+      - ATTESTATION_PQ_SEED=${ATTESTATION_PQ_SEED:-}
+      - PQ_SIGNATURES_ENABLED=${PQ_SIGNATURES_ENABLED:-true}
+      - CANARY_STATEMENT=${CANARY_STATEMENT:-}
+      # Sentinel circuit breaker + optional Isolation Forest guard
+      - SENTINEL_ENABLED=${SENTINEL_ENABLED:-true}
+      - SENTINEL_OUTFLOW_CAPS=${SENTINEL_OUTFLOW_CAPS:-}
+      - RISK_ENGINE_URL=http://risk-engine:8080
+      - RISK_ENGINE_API_KEY=${RISK_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
