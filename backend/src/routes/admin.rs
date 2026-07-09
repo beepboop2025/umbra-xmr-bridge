@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
 use crate::models::{AdminUser, OrderStatus};
-use crate::services::{audit_service, order_service};
+use crate::services::{audit_service, order_service, sentinel};
 use crate::AppState;
 
 // ---------------------------------------------------------------------------
@@ -66,7 +66,10 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/v1/admin/login", post(admin_login))
         .route("/v1/admin/stats", get(admin_stats))
-        .route("/v1/admin/order/{order_id}/refund", post(admin_refund))
+        .route("/v1/admin/order/:order_id/refund", post(admin_refund))
+        .route("/v1/admin/sentinel", get(admin_sentinel_status))
+        .route("/v1/admin/sentinel/pause", post(admin_sentinel_pause))
+        .route("/v1/admin/sentinel/resume", post(admin_sentinel_resume))
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +265,94 @@ async fn admin_refund(
         status: updated.status,
         message: "Refund process initiated".into(),
     }))
+}
+
+// ---------------------------------------------------------------------------
+// Sentinel (circuit breaker) controls
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct SentinelPauseRequest {
+    pub reason: String,
+}
+
+#[derive(Deserialize)]
+pub struct SentinelResumeRequest {
+    pub note: String,
+}
+
+#[derive(Serialize)]
+pub struct SentinelStatusResponse {
+    pub accepting_orders: bool,
+    pub paused: Option<sentinel::PauseState>,
+    pub recent_events: Vec<sentinel::SentinelEvent>,
+}
+
+async fn admin_sentinel_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<Json<SentinelStatusResponse>> {
+    metrics::counter!("http_requests_total", "endpoint" => "admin_sentinel").increment(1);
+    let _claims = extract_and_verify_jwt(&state, &headers)?;
+
+    let paused = sentinel::pause_state(&state.redis).await;
+    let recent_events = sentinel::recent_events(&state.db, 50).await?;
+
+    Ok(Json(SentinelStatusResponse {
+        accepting_orders: paused.is_none(),
+        paused,
+        recent_events,
+    }))
+}
+
+async fn admin_sentinel_pause(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<SentinelPauseRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    metrics::counter!("http_requests_total", "endpoint" => "admin_sentinel_pause").increment(1);
+    let claims = extract_and_verify_jwt(&state, &headers)?;
+
+    if req.reason.trim().is_empty() {
+        return Err(AppError::BadRequest("A pause reason is required".into()));
+    }
+
+    let engaged = sentinel::pause(
+        &state.db,
+        &state.redis,
+        "manual",
+        req.reason.trim(),
+        serde_json::json!({}),
+        &claims.sub,
+    )
+    .await?;
+
+    Ok(Json(serde_json::json!({
+        "paused": true,
+        "was_already_paused": !engaged,
+    })))
+}
+
+async fn admin_sentinel_resume(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<SentinelResumeRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    metrics::counter!("http_requests_total", "endpoint" => "admin_sentinel_resume").increment(1);
+    let claims = extract_and_verify_jwt(&state, &headers)?;
+
+    if req.note.trim().is_empty() {
+        return Err(AppError::BadRequest(
+            "A resume note is required (what was investigated, why it is safe)".into(),
+        ));
+    }
+
+    let resumed = sentinel::resume(&state.db, &state.redis, &claims.sub, req.note.trim()).await?;
+
+    Ok(Json(serde_json::json!({
+        "paused": false,
+        "was_paused": resumed,
+    })))
 }
 
 // ---------------------------------------------------------------------------

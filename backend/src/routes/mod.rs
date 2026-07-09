@@ -3,3 +3,4 @@ pub mod rates;
 pub mod orders;
 pub mod admin;
 pub mod ws;
+pub mod proof;

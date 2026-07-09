@@ -26,6 +26,9 @@ pub enum AppError {
     #[error("Too many requests: {0}")]
     TooManyRequests(String),
 
+    #[error("Service unavailable: {0}")]
+    ServiceUnavailable(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 
@@ -43,6 +46,9 @@ pub enum AppError {
 
     #[error(transparent)]
     Jwt(#[from] jsonwebtoken::errors::Error),
+
+    #[error(transparent)]
+    Anyhow(#[from] anyhow::Error),
 }
 
 impl IntoResponse for AppError {
@@ -55,6 +61,7 @@ impl IntoResponse for AppError {
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
             AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded".into()),
             AppError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, msg.clone()),
+            AppError::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg.clone()),
             AppError::Internal(msg) => {
                 tracing::error!("Internal error: {msg}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".into())
@@ -78,6 +85,10 @@ impl IntoResponse for AppError {
             AppError::Jwt(e) => {
                 tracing::error!("JWT error: {e}");
                 (StatusCode::UNAUTHORIZED, "Invalid token".into())
+            }
+            AppError::Anyhow(e) => {
+                tracing::error!("Internal error: {e:#}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".into())
             }
         };
 

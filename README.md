@@ -34,6 +34,90 @@
 
 Umbra is a non-custodial cross-chain bridge built around **Monero** — the only cryptocurrency with mandatory privacy. It enables trustless swaps between privacy coins and public blockchains using **FROST threshold signatures** (2-of-3 MPC), meaning no single party ever holds your funds.
 
+What makes Umbra different from every other bridge is the **Proof Layer**: the bridge does not ask to be trusted — it produces cryptographic evidence for everything it does, and ships the tools to check that evidence offline.
+
+---
+
+## The Proof Layer
+
+Bridges are the most-hacked primitive in crypto (Ronin $624M, Multichain $126M, Nomad $190M, Harmony $100M — drained over minutes-to-hours while nothing watched). Umbra's answer is a layer of verifiable accountability that no major bridge ships today:
+
+```
+              ┌─────────────────────────────────────────────────────────┐
+              │                      PROOF LAYER                        │
+              │                                                         │
+   every      │  ┌────────────┐   sealed    ┌──────────────────┐        │
+   order ────►│  │  Signed    │  every 5m   │  Transparency    │        │
+   event      │  │  Receipts  │────────────►│  Log (Merkle)    │        │
+              │  │ Ed25519 +  │             │  RFC 6962 proofs │        │
+              │  │ ML-DSA-65  │             └────────┬─────────┘        │
+              │  └────────────┘                      │ anchors          │
+              │                                      ▼                  │
+              │  ┌──────────────────┐        ┌──────────────┐           │
+              │  │  Sentinel        │        │  Signed      │           │
+              │  │  5 guards, 30s   │        │  Canary      │           │
+              │  │  + Isolation     │        │  (freshness- │           │
+              │  │    Forest (ML)   │        │   bound)     │           │
+              │  └──────────────────┘        └──────────────┘           │
+              └─────────────────────────────────────────────────────────┘
+                        ▲ verify offline: browser page, single-file
+                          HTML, or pure-stdlib Python CLI — zero trust
+```
+
+### 1. Signed swap receipts — a flight recorder for every order
+
+Every lifecycle event of every order (`order_created`, `status_confirming`, `status_completed`, …) produces a receipt signed with the bridge's **Ed25519** key over canonical JSON. Receipts for one order are **hash-chained** (each embeds the SHA-256 of the previous receipt), so a user holding their final receipt can detect any retroactive edit to their order's history. Receipts carry a *hash* of the destination address, not the address — the proof layer never becomes a metadata leak.
+
+```bash
+curl -s https://your-bridge/v1/proof/receipt/br_ab12cd34ef56 | \
+    python3 tools/verify_receipt.py receipts - --pin <PUBLIC_KEY>
+```
+
+### 2. Post-quantum hybrid signatures
+
+Receipts are archival evidence with a multi-decade shelf life. Alongside Ed25519, every receipt and checkpoint is signed with **ML-DSA-65 (FIPS 204, CRYSTALS-Dilithium)** over the same canonical bytes. Ed25519 stays the cheap, universally verifiable online layer; the ML-DSA signature keeps the archive forgery-proof against a future quantum adversary. Forging history requires breaking **both** schemes.
+
+### 3. Transparency log — Certificate Transparency for a bridge
+
+The audit hash-chain is sealed every few minutes into a **signed Merkle checkpoint** (the RFC 6962 construction used by Certificate Transparency, validated against the CT known-answer vectors). Anyone can then demand:
+
+- **Inclusion proofs** — `GET /v1/proof/inclusion/{audit_id}` proves a specific audit entry is committed to by a checkpoint (log₂ n hashes, verifiable offline).
+- **Consistency proofs** — `GET /v1/proof/consistency?old_size=&new_size=` proves a newer checkpoint is a pure append-only extension of an older one. **History cannot be rewritten without detection.**
+
+Mirror `GET /v1/proof/checkpoint/latest` on a cron job and you become an external witness the operator cannot silently contradict.
+
+### 4. The Sentinel — a circuit breaker between the bridge and catastrophe
+
+Five guards run every 30 seconds:
+
+| Guard | Trips when | Would have caught |
+|-------|-----------|-------------------|
+| Outflow velocity | per-chain outbound volume exceeds hourly caps | Ronin, Harmony (key-compromise drains) |
+| Order velocity | order creation rate spikes | bot floods, probing attacks |
+| Failure spike | failed orders cluster | subsystem exploitation |
+| Rate divergence | independent price sources disagree > 5% | oracle poisoning |
+| **ML anomaly** (optional) | Isolation Forest flags order-flow combinations vs the 7-day baseline | drain signatures no fixed threshold expresses |
+
+A trip pauses **new intake only** — in-flight swaps keep settling, so a false positive costs minutes of intake, not user funds. The sentinel never auto-resumes: a human must investigate and resume with a note. Every trip, pause, and resume lands in the tamper-evident audit chain and the public `GET /v1/proof/status` endpoint — **the bridge cannot be paused or unpaused in secret**. The ML guard fails open: a risk-engine outage never blocks the bridge.
+
+### 5. Signed, freshness-bound warrant canary
+
+`GET /v1/proof/canary` returns a signed statement embedding the current time **and the latest checkpoint root** — it cannot be replayed against a rewound log. A canary that stops updating is itself a signal.
+
+### Verify without trusting anything
+
+Three independent verifiers ship in this repo, all validated against RFC 8032 test vectors and against each other:
+
+| Verifier | Trust required |
+|----------|---------------|
+| `website /verify` page | verification runs client-side in your browser |
+| [`verifier/umbra-verify.html`](verifier/umbra-verify.html) | **none** — save the file, open from `file://`, zero network requests, pure-BigInt Ed25519 with an on-load self-test |
+| [`tools/verify_receipt.py`](tools/verify_receipt.py) | **none** — pure Python stdlib, no dependencies; `receipts`/`checkpoint`/`inclusion` subcommands |
+
+Pin the bridge's public key (`GET /v1/proof/key`) out-of-band once; from then on, every receipt either verifies or it doesn't. Telegram users get the same via `/receipt <order_id>` and `/trust`.
+
+The full wire-format specification — exact canonical forms, algorithms, threat model, and test vectors for building your own verifier — lives in [`docs/PROOF_LAYER.md`](docs/PROOF_LAYER.md).
+
 ### Supported Chains
 
 | Chain | Ticker | Type |
@@ -95,7 +179,7 @@ Mobile-optimized bridge UI that runs inside Telegram. Tap, swap, done.
 Full conversational bridge — `/bridge`, `/rate`, `/history`, `/status`. Works without ever leaving the chat.
 
 ### 3. Enterprise Website
-Desktop dashboard with portfolio tracking, analytics charts, order history, public transaction explorer, and admin panel.
+Desktop dashboard with portfolio tracking, analytics charts, order history, public transaction explorer, admin panel — plus `/verify` (client-side receipt verification) and `/transparency` (live sentinel status, checkpoints, canary).
 
 All three share the same Rust API and real-time WebSocket feed.
 
@@ -149,14 +233,14 @@ docker compose up --build
 umbra/
 ├── backend/               # Rust API (axum + sqlx + tokio)
 │   ├── src/
-│   │   ├── routes/        # HTTP + WebSocket endpoints
-│   │   ├── services/      # Rate engine, order lifecycle, audit chain
+│   │   ├── routes/        # HTTP + WebSocket endpoints (incl. /v1/proof/*)
+│   │   ├── services/      # Rates, orders, attestations, transparency, sentinel
 │   │   ├── blockchain/    # Monero, Bitcoin, EVM, TON, Solana RPC clients
 │   │   ├── mpc/           # FROST threshold signatures, coordinator, signers
 │   │   ├── middleware/     # Security headers, rate limiting, Telegram auth
-│   │   ├── tasks/         # Deposit monitor, confirmation checker, expiry
+│   │   ├── tasks/         # Deposit monitor, confirmations, expiry, sentinel, sealing
 │   │   ├── models/        # SQLx models (orders, rates, audit, MPC)
-│   │   └── utils/         # Crypto helpers, address validation
+│   │   └── utils/         # Crypto helpers, address validation, RFC 6962 Merkle
 │   └── migrations/        # PostgreSQL schema
 ├── bot/                   # Telegram bot (aiogram 3)
 │   └── bot/
@@ -171,6 +255,10 @@ umbra/
 │       ├── stores/        # Zustand state management
 │       └── lib/           # API client, validators, utilities
 ├── src/                   # Telegram Mini App (Vite)
+├── risk-engine/           # Python risk service (FastAPI)
+│   └── services/          # Isolation Forest, MAD z-score, drain scoring
+├── verifier/              # Single-file offline verifier (umbra-verify.html)
+├── tools/                 # verify_receipt.py — pure-stdlib CLI verifier
 ├── docker-compose.yml     # Full stack orchestration (10 services)
 ├── nginx.conf             # Reverse proxy + rate limiting
 └── monitoring/            # Prometheus + Grafana config
@@ -183,20 +271,25 @@ umbra/
 ```
 1. User selects pair         XMR -> TON, enters amount
 2. Rate lock                 Cross-rate from CoinGecko (30s cache)
-3. Order created             Deposit address generated, 30min expiry
-4. Deposit detected          Monero wallet-rpc monitors subaddress
-5. Confirmations             10 confirms for XMR, 1 for TON
-6. MPC signing               2-of-3 FROST threshold signature
-7. Withdrawal sent           TON transfer broadcast
-8. Complete                  User notified via WebSocket + Telegram
+3. Sentinel gate             Intake refused instantly if the circuit breaker is tripped
+4. Order created             Deposit address generated, 30min expiry, signed receipt #0
+5. Deposit detected          Monero wallet-rpc monitors subaddress
+6. Confirmations             10 confirms for XMR, 1 for TON
+7. MPC signing               2-of-3 FROST threshold signature
+8. Withdrawal sent           TON transfer broadcast
+9. Complete                  Signed receipt binds the withdrawal tx hash;
+                             user notified via WebSocket + Telegram
 ```
+
+Every step from 4 onward emits a hash-chained, dual-signed receipt the user can verify offline — the order's history is provable end to end.
 
 ---
 
 ## Security
 
 - **FROST 2-of-3 MPC** — No single party can sign transactions
-- **Hash-chain audit log** — Every state change is tamper-evident (SHA-256 chain)
+- **Proof Layer** — Signed receipts (Ed25519 + ML-DSA-65), RFC 6962 transparency log, sentinel circuit breaker, signed canary (see above)
+- **Hash-chain audit log** — Every state change is tamper-evident (SHA-256 chain), sealed into signed Merkle checkpoints
 - **Telegram WebApp auth** — HMAC-SHA-256 verification of `initData`
 - **Rate limiting** — Redis sliding window (60/min API, 10/min orders, 5 WS/IP)
 - **Security headers** — CSP, HSTS, X-Frame-Options, X-Content-Type-Options
@@ -204,6 +297,10 @@ umbra/
 - **JWT** — Admin authentication with configurable expiry
 - **Anti-replay** — Nonce-based protection on order creation and MPC signing
 - **Address validation** — Per-chain regex validation (XMR base58, BTC bech32, ETH checksum, TON friendly/raw, SOL base58)
+
+### Key custody for the Proof Layer
+
+The attestation identity is derived deterministically from `SECRET_KEY` by default (fine for development). In production set independent seeds — `ATTESTATION_SECRET_KEY` (Ed25519) and `ATTESTATION_PQ_SEED` (ML-DSA-65) — so receipt-signing custody can be separated from JWT custody, and publish the public keys from `GET /v1/proof/key` somewhere you don't control (a tweet, a git tag, another bridge's transparency page) so users can pin them.
 
 ---
 
@@ -229,11 +326,33 @@ WS   /v1/ws/order/:id                      Real-time order status updates
 WS   /v1/ws/rates                           Live rate feed
 ```
 
+### Proof Layer (public — no auth, by design)
+```
+GET  /v1/proof/key                          Bridge public keys (Ed25519 + ML-DSA-65) — pin these
+GET  /v1/proof/receipt/:order_id            Signed receipts for an order (full lifecycle)
+GET  /v1/proof/checkpoint/latest            Latest signed Merkle tree head
+GET  /v1/proof/checkpoints?limit=20         Checkpoint history
+GET  /v1/proof/inclusion/:audit_id          RFC 6962 inclusion proof for an audit entry
+GET  /v1/proof/consistency?old_size=&new_size=  Append-only proof between two checkpoints
+GET  /v1/proof/audit/verify                 Server-side full hash-chain walk
+GET  /v1/proof/canary                       Signed, freshness-bound warrant canary
+GET  /v1/proof/status                       Sentinel state: accepting orders? why not?
+```
+
+### Risk Engine (internal, X-API-Key)
+```
+POST /v1/risk/anomaly                       Statistical drain scores (MAD z-score, burst, round amounts)
+POST /v1/risk/anomaly/ml                    Isolation Forest anomaly scores over order-flow features
+```
+
 ### Admin
 ```
 POST /v1/admin/login                        JWT authentication
 GET  /v1/admin/stats                        System statistics
 POST /v1/admin/order/:id/refund             Manual refund
+GET  /v1/admin/sentinel                     Sentinel state + last 50 events
+POST /v1/admin/sentinel/pause               Manual pause (reason required)
+POST /v1/admin/sentinel/resume              Resume (investigation note required)
 ```
 
 ### System
@@ -292,6 +411,14 @@ See [`backend/.env.example`](backend/.env.example) for the full list. Key ones:
 | `ETH_RPC_URL` | Ethereum JSON-RPC |
 | `BRIDGE_FEE_PERCENT` | Fee per swap (default: 0.3%) |
 | `MPC_THRESHOLD` | Signatures required (default: 2) |
+| `ATTESTATION_SECRET_KEY` | Ed25519 receipt-signing seed, 64 hex chars (derived from `SECRET_KEY` if unset) |
+| `ATTESTATION_PQ_SEED` | ML-DSA-65 seed, 64 hex chars (derived if unset) |
+| `PQ_SIGNATURES_ENABLED` | Post-quantum hybrid signatures (default: true) |
+| `TRANSPARENCY_SEAL_INTERVAL_SECS` | Checkpoint sealing cadence (default: 300) |
+| `CANARY_STATEMENT` | Warrant-canary text served at `/v1/proof/canary` |
+| `SENTINEL_ENABLED` | Circuit breaker (default: true) |
+| `SENTINEL_OUTFLOW_CAPS` | Per-chain hourly caps, e.g. `XMR:1000,BTC:20` |
+| `RISK_ENGINE_URL` | Enables the Isolation Forest sentinel guard (optional) |
 
 ---
 

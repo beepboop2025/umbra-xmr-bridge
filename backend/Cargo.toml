@@ -43,6 +43,9 @@ base64 = "0.22"
 # FROST threshold signatures
 frost-secp256k1 = "1"
 
+# Proof layer: Ed25519 signed receipts + transparency checkpoints
+ed25519-dalek = "2"
+
 # Observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
@@ -60,6 +63,7 @@ regex = "1"
 futures = "0.3"
 tokio-stream = "0.1"
 pin-project-lite = "0.2"
+fips204 = "0.4.6"
 
 [profile.release]
 opt-level = 3

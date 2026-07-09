@@ -10,6 +10,8 @@ Endpoints:
     GET  /risk/exposure     — Current exposure breakdown by chain
     GET  /risk/liquidity    — Liquidity depth across chains
     POST /risk/anomaly      — Detect anomalies in recent swap patterns
+    POST /v1/risk/anomaly   — Statistical drain / withdrawal anomaly scores
+    POST /v1/risk/anomaly/ml — Isolation Forest scores over order-flow features
     GET  /health            — Liveness probe
 """
 
@@ -23,6 +25,8 @@ from pydantic_settings import BaseSettings
 
 from models.exposure import ExposureTracker
 from models.liquidity import LiquidityAnalyzer
+from services.anomaly import drain_pattern_score, round_amount_ratio, zscore_anomaly
+from services.isolation_forest import IsolationForest, order_features
 from services.risk_scorer import RiskScorer
 
 
@@ -99,6 +103,26 @@ class AnomalyRequest(BaseModel):
     chain: str | None = None
 
 
+class WithdrawalAnomalyRequest(BaseModel):
+    withdrawal_amounts: list[float]
+    window_minutes: float = 60.0
+    historical_amounts: list[float] = []
+
+
+class OrderPoint(BaseModel):
+    """One order described by the raw attributes the forest featurizes."""
+
+    amount: float
+    minutes_since_prev: float
+    hour_of_day: float
+    direction_frequency: float
+
+
+class MlAnomalyRequest(BaseModel):
+    historical: list[OrderPoint]
+    current: list[OrderPoint]
+
+
 # ---------------------------------------------------------------------------
 # Auth dependency for internal API calls
 # ---------------------------------------------------------------------------
@@ -172,3 +196,76 @@ async def detect_anomalies(req: AnomalyRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
     return {"anomalies": anomalies, "window_hours": req.window_hours}
+
+
+@app.post("/v1/risk/anomaly", dependencies=[Depends(verify_api_key)])
+async def score_withdrawal_anomaly(req: WithdrawalAnomalyRequest):
+    """Score a window of withdrawals for drain-style anomalies.
+
+    Pure statistical checks (services/anomaly.py) — no DB access, so this can
+    be called on hot paths (e.g. by the backend sentinel before releasing a
+    withdrawal batch).
+    """
+    largest = max(req.withdrawal_amounts) if req.withdrawal_amounts else 0.0
+    z_result = zscore_anomaly(req.historical_amounts, largest)
+    drain = drain_pattern_score(req.withdrawal_amounts, req.window_minutes)
+    round_ratio = round_amount_ratio(req.withdrawal_amounts)
+
+    z_component = (
+        min(abs(z_result.robust_z) / z_result.threshold, 1.0)
+        if z_result.threshold > 0
+        else 0.0
+    )
+    score = round(min(1.0, 0.45 * drain + 0.35 * z_component + 0.20 * round_ratio), 4)
+    anomalous = z_result.is_anomaly or drain >= 0.7 or score >= 0.6
+
+    return {
+        "zscore": {
+            "is_anomaly": z_result.is_anomaly,
+            "robust_z": round(z_result.robust_z, 4),
+            "median": z_result.median,
+            "mad": z_result.mad,
+            "threshold": z_result.threshold,
+        },
+        "drain_pattern_score": round(drain, 4),
+        "round_amount_ratio": round(round_ratio, 4),
+        "anomalous": anomalous,
+        "score": score,
+    }
+
+
+@app.post("/v1/risk/anomaly/ml", dependencies=[Depends(verify_api_key)])
+async def score_ml_anomaly(req: MlAnomalyRequest):
+    """Isolation Forest anomaly scores for current orders vs recent history.
+
+    Unsupervised: the forest is fitted on the caller-supplied history each
+    request (fast for the few hundred rows the sentinel sends), so there is
+    no model state to go stale or be poisoned silently — the training window
+    is explicit in every call.
+    """
+    # Height-limited trees compress the score range, so the practical
+    # anomaly cutoff sits a little below the paper's asymptotic 0.7.
+    threshold = 0.65
+    if len(req.historical) < 20:
+        # Too little history to say anything meaningful; never trip on noise.
+        return {"scores": [], "max_score": 0.0, "anomalous": False,
+                "threshold": threshold, "reason": "insufficient history (<20 orders)"}
+    if not req.current:
+        return {"scores": [], "max_score": 0.0, "anomalous": False, "threshold": threshold}
+
+    def feats(p: OrderPoint) -> list[float]:
+        return order_features(p.amount, p.minutes_since_prev, p.hour_of_day,
+                              p.direction_frequency)
+
+    forest = IsolationForest(n_trees=100, sample_size=128, seed=7)
+    forest.fit([feats(p) for p in req.historical])
+    scores = [round(forest.score_one(feats(p)), 4) for p in req.current]
+    max_score = max(scores)
+
+    return {
+        "scores": scores,
+        "max_score": max_score,
+        "anomalous": max_score >= threshold,
+        "threshold": threshold,
+    }
+

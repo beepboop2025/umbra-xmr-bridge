@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, ArrowLeftRight, LayoutDashboard, Search, User } from 'lucide-react';
+import { Home, ArrowLeftRight, LayoutDashboard, Search, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
@@ -10,6 +10,7 @@ const navItems = [
   { href: '/bridge', label: 'Bridge', icon: ArrowLeftRight },
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/explorer', label: 'Explorer', icon: Search },
+  { href: '/verify', label: 'Verify', icon: ShieldCheck },
 ];
 
 export function MobileNav() {

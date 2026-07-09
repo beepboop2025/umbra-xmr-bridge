@@ -55,6 +55,25 @@ pub struct Config {
     pub rate_limit_orders_per_min: u32,
     pub rate_limit_ws_per_ip: u32,
 
+    // Proof layer
+    pub attestation_secret_key: Option<String>,
+    pub attestation_pq_seed: Option<String>,
+    pub pq_signatures_enabled: bool,
+    pub transparency_seal_interval_secs: u64,
+    pub canary_statement: String,
+
+    // Sentinel (circuit breaker)
+    pub sentinel_enabled: bool,
+    pub sentinel_check_interval_secs: u64,
+    pub sentinel_max_orders_per_5m: i64,
+    pub sentinel_max_failures_per_15m: i64,
+    pub sentinel_rate_divergence_percent: f64,
+    pub sentinel_outflow_caps: String,
+
+    // Optional ML anomaly guard (Isolation Forest via the risk engine)
+    pub risk_engine_url: Option<String>,
+    pub risk_engine_api_key: Option<String>,
+
     // CORS
     pub cors_origins: Vec<String>,
 }
@@ -105,6 +124,37 @@ impl Config {
             rate_limit_rates_per_min: env("RATE_LIMIT_RATES", "60").parse().unwrap_or(60),
             rate_limit_orders_per_min: env("RATE_LIMIT_ORDERS", "10").parse().unwrap_or(10),
             rate_limit_ws_per_ip: env("RATE_LIMIT_WS", "5").parse().unwrap_or(5),
+
+            attestation_secret_key: env_opt("ATTESTATION_SECRET_KEY"),
+            attestation_pq_seed: env_opt("ATTESTATION_PQ_SEED"),
+            pq_signatures_enabled: env("PQ_SIGNATURES_ENABLED", "true").parse().unwrap_or(true),
+            transparency_seal_interval_secs: env("TRANSPARENCY_SEAL_INTERVAL_SECS", "300")
+                .parse()
+                .unwrap_or(300),
+            canary_statement: env(
+                "CANARY_STATEMENT",
+                "As of the issuance time below, Umbra has not received any legal demand \
+                 to disclose user data, insert backdoors, or alter destination addresses, \
+                 and retains full control of its signing keys.",
+            ),
+
+            sentinel_enabled: env("SENTINEL_ENABLED", "true").parse().unwrap_or(true),
+            sentinel_check_interval_secs: env("SENTINEL_CHECK_INTERVAL_SECS", "30")
+                .parse()
+                .unwrap_or(30),
+            sentinel_max_orders_per_5m: env("SENTINEL_MAX_ORDERS_PER_5M", "60")
+                .parse()
+                .unwrap_or(60),
+            sentinel_max_failures_per_15m: env("SENTINEL_MAX_FAILURES_PER_15M", "10")
+                .parse()
+                .unwrap_or(10),
+            sentinel_rate_divergence_percent: env("SENTINEL_RATE_DIVERGENCE_PERCENT", "5.0")
+                .parse()
+                .unwrap_or(5.0),
+            sentinel_outflow_caps: env("SENTINEL_OUTFLOW_CAPS", ""),
+
+            risk_engine_url: env_opt("RISK_ENGINE_URL"),
+            risk_engine_api_key: env_opt("RISK_ENGINE_API_KEY"),
 
             cors_origins: env("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")
                 .split(',')

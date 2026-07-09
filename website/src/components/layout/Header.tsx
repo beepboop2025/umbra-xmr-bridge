@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu, X, Activity, ArrowLeftRight, LayoutDashboard, Search, Shield } from 'lucide-react';
+import { Menu, X, Activity, ArrowLeftRight, LayoutDashboard, Search, ShieldCheck, Eye } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { TonConnectButton } from '@/components/wallet/TonConnectButton';
@@ -13,6 +13,8 @@ const navLinks = [
   { href: '/bridge', label: 'Bridge', icon: ArrowLeftRight },
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/explorer', label: 'Explorer', icon: Search },
+  { href: '/verify', label: 'Verify', icon: ShieldCheck },
+  { href: '/transparency', label: 'Transparency', icon: Eye },
 ];
 
 export function Header() {

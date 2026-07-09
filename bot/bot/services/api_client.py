@@ -164,6 +164,25 @@ class BridgeAPIClient:
         data = await self._request("GET", "/api/admin/orders/pending")
         return data  # type: ignore[return-value]
 
+    # ------------------------------------------------------------------
+    # Proof layer (public, unauthenticated)
+    # ------------------------------------------------------------------
+
+    async def get_receipts(self, order_id: str) -> dict[str, Any]:
+        """GET /v1/proof/receipt/{order_id}  ->  Ed25519-signed receipt chain."""
+        data = await self._request("GET", f"/v1/proof/receipt/{order_id}")
+        return data  # type: ignore[return-value]
+
+    async def get_proof_status(self) -> dict[str, Any]:
+        """GET /v1/proof/status  ->  sentinel circuit-breaker status."""
+        data = await self._request("GET", "/v1/proof/status")
+        return data  # type: ignore[return-value]
+
+    async def get_proof_canary(self) -> dict[str, Any]:
+        """GET /v1/proof/canary  ->  signed warrant canary + latest tree head."""
+        data = await self._request("GET", "/v1/proof/canary")
+        return data  # type: ignore[return-value]
+
 
 # Singleton instance -- import this everywhere
 api_client = BridgeAPIClient()
