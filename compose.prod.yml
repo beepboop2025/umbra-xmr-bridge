@@ -153,7 +153,10 @@ services:
     restart: unless-stopped
     profiles: ["bot"]
     environment:
-      - BOT_TOKEN=${TELEGRAM_BOT_TOKEN:?required to run the bot}
+      # Not `:?` — Compose interpolates every service (even profiled-off ones) at
+      # load time, so a required-guard here would block the core deploy. The bot
+      # only starts under `--profile bot`; set the token then.
+      - BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - API_BASE_URL=http://api:8000
       - WEBAPP_URL=https://${UMBRA_DOMAIN}/app
     depends_on:
