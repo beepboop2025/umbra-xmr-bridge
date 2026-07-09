@@ -52,7 +52,7 @@ Working, tested code in the Umbra repo: signed receipts, the RFC 6962 log with c
 ## Deliverables
 
 **Milestone 1: Specification and test vectors (60 hours, 19 XMR).**
-A written spec covering the receipt wire format, signing rules for both signature schemes, log structure, checkpoint format, canary rules, and the verification algorithm. Includes a full set of test vectors so independent implementations can check themselves. Published under CC0 in its own repository.
+A written spec covering the receipt wire format, signing rules for both signature schemes, log structure, checkpoint format, canary rules, and the verification algorithm. Includes a full set of test vectors so independent implementations can check themselves. Published under CC0 in its own repository, which already exists with the project explainer: https://github.com/beepboop2025/swap-receipts
 
 **Milestone 2: Standalone Rust crate and verifier CLI (120 hours, 19 XMR).**
 A `swap-receipts` crate with no dependency on my backend, implementing issuance and verification, plus a `receipt-verify` CLI a user can run against any adopting service. Umbra migrates to the crate, which proves the extraction is real and keeps one production deployment exercising it. Both published on crates.io with the same license as the spec.
