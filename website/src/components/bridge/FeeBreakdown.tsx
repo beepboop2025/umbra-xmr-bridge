@@ -1,7 +1,7 @@
 'use client';
 
-import { Info, Clock, Percent, Coins } from 'lucide-react';
 import { CHAINS } from '@/lib/chains';
+import { Provenance } from '@/components/tikto/primitives';
 import { cn } from '@/lib/utils';
 
 interface FeeBreakdownProps {
@@ -29,60 +29,41 @@ export function FeeBreakdown({
 }: FeeBreakdownProps) {
   const srcChain = CHAINS[sourceChain];
   const dstChain = CHAINS[destChain];
-  const feeAmount = sourceAmount * (feePercent / 100);
 
   if (!sourceAmount || !rate) return null;
 
+  const feeAmount = sourceAmount * (feePercent / 100);
+  const dp = dstChain?.type === 'stablecoin' ? 2 : 6;
+  const minReceived = (Number(destAmount) || 0).toFixed(dp);
+
+  const rows = [
+    { k: 'you send', v: `${sourceAmount} ${srcChain?.symbol}` },
+    { k: 'exchange rate', v: `1 ${srcChain?.symbol} = ${(Number(rate) || 0).toFixed(8)} ${dstChain?.symbol}` },
+    { k: `bridge fee · ${feePercent}%`, v: `− ${(Number(feeAmount) || 0).toFixed(6)} ${srcChain?.symbol}` },
+    { k: 'network fee', v: `− ${(Number(networkFee) || 0).toFixed(6)} ${dstChain?.symbol}` },
+  ];
+
   return (
-    <div className={cn('rounded-lg bg-surface-base border border-surface-border p-4 space-y-3', className)}>
-      <div className="flex items-center gap-2 text-sm font-medium text-gray-300">
-        <Info size={14} className="text-gray-500" />
-        Fee Breakdown
-      </div>
-
-      <div className="space-y-2">
-        <Row
-          label="Exchange Rate"
-          value={`1 ${srcChain?.symbol} = ${(Number(rate) || 0).toFixed(8)} ${dstChain?.symbol}`}
-          icon={<Coins size={12} />}
-        />
-        <Row
-          label="Bridge Fee"
-          value={`${feePercent}% (${(Number(feeAmount) || 0).toFixed(6)} ${srcChain?.symbol})`}
-          icon={<Percent size={12} />}
-        />
-        <Row
-          label="Network Fee"
-          value={`${(Number(networkFee) || 0).toFixed(6)} ${dstChain?.symbol}`}
-          icon={<Coins size={12} />}
-        />
-        <Row
-          label="Estimated Time"
-          value={`~${estimatedTime} minutes`}
-          icon={<Clock size={12} />}
-        />
-      </div>
-
-      <div className="pt-2 border-t border-surface-border">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-gray-300">You Receive</span>
-          <span className="text-lg font-bold text-white">
-            {(Number(destAmount) || 0).toFixed(8)} {dstChain?.symbol}
-          </span>
+    <div className={cn('rounded-[11px] bg-surface-base border border-surface-border p-4', className)}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="tk-label">You receive · minimum</div>
+          <div className="mt-1.5">
+            <Provenance rows={rows}>
+              <span className="tk-num text-base font-bold text-ink-0">
+                {minReceived} {dstChain?.symbol}
+              </span>
+            </Provenance>
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="tk-label">settles in</div>
+          <div className="tk-num text-sm font-semibold text-ink-1 mt-1.5">~{estimatedTime} min</div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Row({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between text-xs">
-      <span className="flex items-center gap-1.5 text-gray-500">
-        {icon}
-        {label}
-      </span>
-      <span className="text-gray-300 font-mono">{value}</span>
+      <p className="text-[11px] font-mono text-ink-4 mt-2.5">
+        pull the figure for its derivation · slippage-protected, guaranteed minimum
+      </p>
     </div>
   );
 }

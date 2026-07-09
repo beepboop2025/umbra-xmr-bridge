@@ -5,7 +5,7 @@ import { ChainIcon } from './ChainSelector';
 import { cn } from '@/lib/utils';
 
 interface AmountInputProps {
-  label: string;
+  label?: string;
   chain: string;
   value: string;
   onChange?: (value: string) => void;
@@ -24,6 +24,7 @@ export function AmountInput({
   maxAmount,
 }: AmountInputProps) {
   const chainData = CHAINS[chain];
+  const showMax = maxAmount !== undefined && !readOnly;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
@@ -35,22 +36,26 @@ export function AmountInput({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-gray-300">{label}</label>
-        {maxAmount !== undefined && !readOnly && (
-          <button
-            onClick={() => onChange?.(String(maxAmount))}
-            className="text-xs text-xmr-400 hover:text-xmr-300 transition-colors"
-          >
-            Max: {maxAmount} {chainData?.symbol}
-          </button>
-        )}
-      </div>
+      {(label || showMax) && (
+        <div className="flex items-center justify-between">
+          {label ? <span className="tk-label">{label}</span> : <span />}
+          {showMax && (
+            <button
+              onClick={() => onChange?.(String(maxAmount))}
+              className="text-[11px] font-mono text-live-500 hover:text-live-400 transition-colors"
+            >
+              max {maxAmount} {chainData?.symbol}
+            </button>
+          )}
+        </div>
+      )}
       <div
         className={cn(
-          'flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors',
-          readOnly ? 'bg-surface-base border-surface-border' : 'bg-surface-elevated border-surface-border focus-within:border-xmr-500/50',
-          error && 'border-red-500/50'
+          'flex items-center gap-3 px-4 py-3 rounded-[11px] border transition-colors',
+          readOnly
+            ? 'bg-surface-base border-surface-border'
+            : 'bg-surface-elevated border-surface-border focus-within:border-live-500/60',
+          error && 'border-critical/60'
         )}
       >
         <input
@@ -61,18 +66,18 @@ export function AmountInput({
           readOnly={readOnly}
           placeholder="0.00"
           className={cn(
-            'flex-1 bg-transparent text-xl font-semibold text-white placeholder:text-gray-700 focus:outline-none',
-            readOnly && 'text-gray-400'
+            'tk-num flex-1 min-w-0 bg-transparent text-2xl font-bold text-ink-0 placeholder:text-ink-4 focus:outline-none',
+            readOnly && 'text-ink-2'
           )}
         />
         {chainData && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-card border border-surface-border">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-card border border-surface-border shrink-0">
             <ChainIcon chain={chainData} size={20} />
-            <span className="text-sm font-medium text-gray-300">{chainData.symbol}</span>
+            <span className="text-sm font-semibold text-ink-1">{chainData.symbol}</span>
           </div>
         )}
       </div>
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {error && <p className="text-[11px] text-critical">{error}</p>}
     </div>
   );
 }

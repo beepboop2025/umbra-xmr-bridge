@@ -4,6 +4,7 @@ import { RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
 import { CHAINS } from '@/lib/chains';
 import { SparklineChart } from '@/components/charts/SparklineChart';
 import { useRate, useRateHistory } from '@/hooks/useRate';
+import { Chip } from '@/components/tikto/primitives';
 import { cn } from '@/lib/utils';
 
 interface RateDisplayProps {
@@ -24,44 +25,38 @@ export function RateDisplay({ source, dest, className }: RateDisplayProps) {
 
   return (
     <div className={cn('flex items-center gap-4', className)}>
-      <div className="flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="text-sm text-gray-400">
-            1 {srcChain?.symbol} =
-          </span>
-          <span className="text-lg font-bold text-white font-mono">
-            {isLoading ? '...' : (Number(rate) || 0).toFixed(8)}
-          </span>
-          <span className="text-sm text-gray-400">{dstChain?.symbol}</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <Chip tone="ok">● streaming</Chip>
+          <span className="tk-label" style={{ color: 'var(--tk-text-4)' }}>rate · CoinGecko + Kraken</span>
         </div>
-        <div className="flex items-center gap-1.5 mt-1">
-          {isPositive ? (
-            <TrendingUp size={12} className="text-green-400" />
-          ) : (
-            <TrendingDown size={12} className="text-red-400" />
-          )}
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span className="text-[13px] text-ink-3">1 {srcChain?.symbol} =</span>
+          <span className="tk-num text-lg font-bold text-ink-0">
+            {isLoading ? '——' : (Number(rate) || 0).toFixed(8)}
+          </span>
+          <span className="text-[13px] text-ink-3">{dstChain?.symbol}</span>
           <span
-            className={cn(
-              'text-xs font-medium',
-              isPositive ? 'text-green-400' : 'text-red-400'
-            )}
+            className="inline-flex items-center gap-1 text-[11px] font-mono font-bold"
+            style={{ color: isPositive ? 'var(--tk-ok)' : 'var(--tk-critical)' }}
           >
+            {isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
             {isPositive ? '+' : ''}
-            {change24h.toFixed(2)}% (24h)
+            {change24h.toFixed(2)}% 24h
           </span>
         </div>
       </div>
 
       {sparkData.length > 2 && (
-        <div className="w-24">
-          <SparklineChart data={sparkData} positive={isPositive} height={28} />
+        <div className="w-24 shrink-0">
+          <SparklineChart data={sparkData} color={isPositive ? '#19c393' : '#ff5b52'} height={28} />
         </div>
       )}
 
       <button
         onClick={refresh}
         disabled={isLoading}
-        className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-elevated transition-colors disabled:opacity-50"
+        className="shrink-0 p-2 rounded-lg text-ink-3 hover:text-live-500 hover:bg-surface-elevated transition-colors disabled:opacity-50"
         title="Refresh rate"
       >
         <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />

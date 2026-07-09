@@ -13,6 +13,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useStats } from '@/hooks/useApi';
 
 const dashboardLinks = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
@@ -29,6 +30,14 @@ const adminLinks = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  // Real reachability, not a claimed status — shares the /api/stats SWR
+  // subscription, so this costs no extra requests.
+  const { data: stats, error: statsError } = useStats();
+  const health = stats
+    ? { dot: 'bg-green-400', label: 'All systems operational' }
+    : statsError
+      ? { dot: 'bg-red-400', label: 'API unreachable' }
+      : { dot: 'bg-gray-500', label: 'Checking status…' };
   const isAdmin = pathname.startsWith('/admin');
   const links = isAdmin ? adminLinks : dashboardLinks;
   const title = isAdmin ? 'Admin Panel' : 'Dashboard';
@@ -81,8 +90,8 @@ export function Sidebar() {
       {/* Status indicator */}
       <div className="mt-auto p-4 border-t border-surface-border">
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-card">
-          <div className="w-2 h-2 rounded-full bg-green-400" />
-          <span className="text-xs text-gray-400">All Systems Operational</span>
+          <div className={cn('w-2 h-2 rounded-full', health.dot)} />
+          <span className="text-xs text-gray-400">{health.label}</span>
         </div>
       </div>
     </aside>

@@ -10,8 +10,12 @@
    tabular. Motion is signal, never decoration. Fail loud, never silent.
    ========================================================================== */
 
-/* ---- Fonts: a geometric display + a tabular mono (numbers are first-class) -- */
+/* ---- Fonts: a geometric display + a tabular mono (numbers are first-class) --
+   When bundling tikto.css into another stylesheet, the host must import the
+   fonts at its own top instead (CSS drops @import rules that follow other
+   rules). Standalone <link> usage can uncomment this line:
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+*/
 
 /* ============================ TOKENS ====================================== */
 :root {

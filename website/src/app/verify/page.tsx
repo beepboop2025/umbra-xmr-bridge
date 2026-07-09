@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import {
   ShieldCheck,
   ShieldX,
@@ -10,16 +11,15 @@ import {
   Download,
   Check,
   X,
+  Minus,
   AlertTriangle,
   ArrowRight,
   Atom,
 } from 'lucide-react';
-import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
-import { cn, formatDate, truncateHash } from '@/lib/utils';
+import { formatDate, truncateHash } from '@/lib/utils';
 import apiClient from '@/lib/api-client';
+import { Chip, DecisionCard, Panel, Provenance, TrustStrip } from '@/components/tikto/primitives';
+import { Reveal } from '@/components/tikto/motion';
 import {
   verifyReceiptChain,
   getStoredPinnedKey,
@@ -28,35 +28,33 @@ import {
   type ReceiptChainVerdict,
 } from '@/lib/proof';
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_HOST = (() => {
+  try {
+    return new URL(API_BASE).host;
+  } catch {
+    return API_BASE;
+  }
+})();
+
 const OFFLINE_VERIFIER_URL =
   'https://github.com/beepboop2025/umbra-xmr-bridge/blob/main/verifier/umbra-verify.html';
 
 type InputMode = 'order' | 'json';
+type RowTone = 'ok' | 'critical' | 'watch' | 'stale';
 
-function CheckMark({ ok, label }: { ok: boolean; label: string }) {
+/** One glass-box verification step: icon + colour + text, never colour alone. */
+function CheckRow({ ok, tone, children }: { ok?: boolean; tone?: RowTone; children: ReactNode }) {
+  const t: RowTone = tone ?? (ok ? 'ok' : 'critical');
+  const color = `var(--tk-${t})`;
+  const Icon = t === 'ok' ? Check : t === 'critical' ? X : t === 'watch' ? Atom : Minus;
+  const textColor =
+    t === 'critical' ? 'var(--tk-critical)' : t === 'stale' ? 'var(--tk-text-3)' : 'var(--tk-text-2)';
   return (
-    <li className="flex items-baseline gap-2 text-sm">
-      {ok ? (
-        <Check size={14} className="shrink-0 translate-y-0.5 text-green-400" />
-      ) : (
-        <X size={14} className="shrink-0 translate-y-0.5 text-red-400" />
-      )}
-      <span className={ok ? 'text-gray-300' : 'text-red-400'}>{label}</span>
+    <li className="flex items-baseline gap-2 text-[13px]">
+      <Icon size={14} className="shrink-0 translate-y-0.5" style={{ color }} />
+      <span style={{ color: textColor }}>{children}</span>
     </li>
-  );
-}
-
-function PqBadge() {
-  return (
-    <span
-      title="This receipt also carries an ML-DSA-65 (FIPS 204) post-quantum signature. It is archival: verify it server-side or with offline tools — browsers cannot verify ML-DSA yet."
-      className="cursor-help"
-    >
-      <Badge variant="info" size="sm">
-        <Atom size={12} />
-        Post-quantum protected
-      </Badge>
-    </span>
   );
 }
 
@@ -81,95 +79,112 @@ function ReceiptTimeline({
           result.pinMatches !== false;
 
         return (
-          <Card key={`${payload.order_id}-${payload.sequence}`} className="relative">
+          <DecisionCard
+            key={`${payload.order_id}-${payload.sequence}`}
+            tone={receiptOk ? 'ok' : 'critical'}
+          >
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div className="flex items-center gap-3">
                 <div
-                  className={cn(
-                    'flex items-center justify-center w-8 h-8 rounded-lg text-sm font-bold',
-                    receiptOk
-                      ? 'bg-green-500/10 text-green-400'
-                      : 'bg-red-500/10 text-red-400'
-                  )}
+                  className="flex items-center justify-center w-8 h-8 rounded-lg text-sm font-bold tk-num"
+                  style={{
+                    background: receiptOk ? 'var(--tk-ok-bg)' : 'var(--tk-critical-bg)',
+                    color: receiptOk ? 'var(--tk-ok)' : 'var(--tk-critical)',
+                    border: `1px solid ${receiptOk ? 'var(--tk-ok-line)' : 'var(--tk-critical-line)'}`,
+                  }}
                 >
                   {payload.sequence}
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-white capitalize">
+                  <p className="text-[14px] font-bold text-ink-0 capitalize">
                     {String(payload.event).replace(/_/g, ' ')}
                   </p>
-                  <p className="text-xs text-gray-500">{formatDate(payload.timestamp)}</p>
+                  <p className="text-[11px] text-ink-3 font-mono">{formatDate(payload.timestamp)}</p>
                 </div>
               </div>
-              {result.hasPqSignature && <PqBadge />}
+              {result.hasPqSignature ? (
+                <Chip tone="watch">
+                  <Atom size={11} /> post-quantum
+                </Chip>
+              ) : (
+                <Chip tone={receiptOk ? 'ok' : 'critical'}>{receiptOk ? 'verified' : 'failed'}</Chip>
+              )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-sm mb-3">
-              <span className="font-mono text-white">
+            {/* the swap terms */}
+            <div className="flex flex-wrap items-center gap-2 text-[13px] mb-3">
+              <span className="font-mono text-ink-0">
                 {payload.from_amount} {payload.from_currency}
               </span>
-              <ArrowRight size={14} className="text-gray-500" />
-              <span className="font-mono text-white">
+              <ArrowRight size={14} className="text-live-500" />
+              <span className="font-mono text-ink-0">
                 {payload.to_amount} {payload.to_currency}
               </span>
-              <span className="text-xs text-gray-500">
+              <span className="text-[11px] text-ink-3 font-mono">
                 rate {payload.rate} · fee {payload.fee} ({payload.fee_percent}%)
               </span>
             </div>
 
-            <div className="space-y-1 text-xs font-mono text-gray-500 break-all mb-3">
+            {/* hashes + provenance-on-pull */}
+            <div className="space-y-1 text-[11px] font-mono text-ink-3 break-all mb-3">
               {payload.deposit_tx_hash && (
                 <p>
-                  <span className="text-gray-400">deposit tx</span> {payload.deposit_tx_hash}
+                  <span className="text-ink-4">deposit tx</span> {payload.deposit_tx_hash}
                 </p>
               )}
               {payload.withdrawal_tx_hash && (
                 <p>
-                  <span className="text-gray-400">withdrawal tx</span>{' '}
-                  {payload.withdrawal_tx_hash}
+                  <span className="text-ink-4">withdrawal tx</span> {payload.withdrawal_tx_hash}
                 </p>
               )}
-              <p>
-                <span className="text-gray-400">payload hash</span>{' '}
-                {truncateHash(result.payloadHash, 16)}
-              </p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-ink-4">payload hash</span>
+                <Provenance
+                  rows={[
+                    { k: 'key id', v: receipt.key_id ?? truncateHash(receipt.public_key, 8) },
+                    { k: 'algorithm', v: 'Ed25519 (RFC 8032)' },
+                    { k: 'canonical', v: 'JSON · sorted keys · compact' },
+                    { k: 'hash', v: 'SHA-256' },
+                    { k: 'post-quantum', v: result.hasPqSignature ? 'ML-DSA-65 (FIPS 204)' : 'none' },
+                  ]}
+                >
+                  <span className="text-ink-1">{truncateHash(result.payloadHash, 16)}</span>
+                </Provenance>
+              </div>
             </div>
 
-            <ul className="space-y-1 pt-3 border-t border-surface-border">
-              <CheckMark
-                ok={result.canonicalMatches}
-                label="Server canonical form matches local re-canonicalization"
-              />
-              <CheckMark
-                ok={result.hashMatches}
-                label="SHA-256 of canonical payload matches payload_hash"
-              />
-              <CheckMark
-                ok={result.signatureValid}
-                label="Ed25519 signature valid over canonical payload"
-              />
-              <CheckMark
-                ok={result.chainLinks}
-                label={
-                  i === 0
-                    ? payload.sequence === 0
-                      ? 'First receipt anchors to the genesis hash'
-                      : `Starts at sequence ${payload.sequence} (partial history — earlier receipts not provided)`
-                    : 'prev_receipt_hash links to the previous receipt'
-                }
-              />
+            {/* every check as an ok/critical row */}
+            <ul className="space-y-1.5 pt-3 border-t border-surface-border">
+              <CheckRow ok={result.canonicalMatches}>
+                Canonical JSON matches local re-canonicalization
+              </CheckRow>
+              <CheckRow ok={result.hashMatches}>
+                SHA-256 of canonical payload matches payload_hash
+              </CheckRow>
+              <CheckRow ok={result.signatureValid}>
+                Ed25519 signature valid over canonical payload
+              </CheckRow>
+              <CheckRow tone={result.hasPqSignature ? 'watch' : 'stale'} ok={result.hasPqSignature}>
+                {result.hasPqSignature
+                  ? 'ML-DSA-65 post-quantum signature attached · verify offline'
+                  : 'No post-quantum signature attached'}
+              </CheckRow>
+              <CheckRow ok={result.chainLinks}>
+                {i === 0
+                  ? payload.sequence === 0
+                    ? 'Hash chain anchors to the genesis hash'
+                    : `Hash chain starts at sequence ${payload.sequence} (partial history)`
+                  : 'Hash chain links to the previous receipt'}
+              </CheckRow>
               {result.pinMatches !== null && (
-                <CheckMark
-                  ok={result.pinMatches}
-                  label={
-                    result.pinMatches
-                      ? 'Signed by your pinned key'
-                      : 'Signed by a DIFFERENT key than your pin'
-                  }
-                />
+                <CheckRow ok={result.pinMatches}>
+                  {result.pinMatches
+                    ? 'Signed by your pinned key'
+                    : 'Signed by a DIFFERENT key than your pin'}
+                </CheckRow>
               )}
             </ul>
-          </Card>
+          </DecisionCard>
         );
       })}
     </div>
@@ -218,9 +233,7 @@ export default function VerifyPage() {
           if (err.status === 404) {
             throw new Error(`No receipts found for order "${id}" — check the order ID`);
           }
-          throw new Error(
-            `Could not reach the bridge API: ${err.message || 'network error'}`
-          );
+          throw new Error(`Could not reach the bridge API: ${err.message || 'network error'}`);
         }
         if (!list.length) {
           throw new Error(`Order "${id}" has no receipts yet`);
@@ -258,171 +271,215 @@ export default function VerifyPage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 pb-24 md:pb-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white">Verify a Receipt</h1>
-        <p className="text-gray-400 mt-2">
-          Check the bridge&apos;s signed swap receipts against its own promises. All
-          cryptography runs locally in your browser — nothing you paste here is sent anywhere.
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-6 pb-24 md:pb-12">
+      {/* Trust strip — the property that matters here: nothing you paste leaves the browser */}
+      <TrustStrip
+        items={[
+          { label: 'crypto', value: 'client-side', dot: 'var(--tk-ok)' },
+          { label: 'network', value: 'zero' },
+          { label: 'verifies', value: 'ed25519 + merkle' },
+          { label: 'env', value: API_HOST },
+        ]}
+      />
+
+      <Reveal className="mt-8 mb-8">
+        <div className="flex items-center gap-2.5 mb-2">
+          <ShieldCheck size={22} className="text-live-500" />
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-ink-0">
+            Verify a receipt
+          </h1>
+        </div>
+        <p className="text-ink-2 max-w-2xl leading-relaxed">
+          Check the bridge&apos;s signed swap receipts against its own promises. All cryptography
+          runs locally in your browser. Nothing you paste here is sent anywhere.
         </p>
-      </div>
+      </Reveal>
 
       {/* Offline verifier note */}
-      <Card className="mb-6 border-xmr-500/20 bg-xmr-500/5">
-        <div className="flex items-start gap-3">
-          <Download size={18} className="shrink-0 mt-0.5 text-xmr-400" />
-          <div className="text-sm">
-            <p className="text-gray-300">
+      <Reveal className="mb-6">
+        <DecisionCard tone="watch">
+          <div className="flex items-start gap-3">
+            <Download size={18} className="shrink-0 mt-0.5 text-live-500" />
+            <p className="text-[13px] text-ink-2 leading-relaxed">
               Don&apos;t want to trust this website either?{' '}
               <a
                 href={OFFLINE_VERIFIER_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xmr-400 hover:text-xmr-300 font-medium underline underline-offset-2"
+                className="text-live-500 hover:text-live-400 font-medium underline underline-offset-2"
               >
                 Download umbra-verify.html
               </a>{' '}
-              — a single self-contained file you can open from your own disk. It makes zero
-              network requests and verifies the same receipts, checkpoints, and Merkle
-              inclusion proofs.
+              — a single self-contained file you open from your own disk. It makes zero network
+              requests and verifies the same receipts, checkpoints, and Merkle inclusion proofs.
             </p>
           </div>
-        </div>
-      </Card>
+        </DecisionCard>
+      </Reveal>
 
-      {/* Input mode toggle */}
-      <div className="flex gap-2 mb-4">
-        <Button
-          variant={mode === 'order' ? 'primary' : 'secondary'}
-          size="sm"
-          icon={<Search size={14} />}
-          onClick={() => setMode('order')}
+      {/* Input */}
+      <Reveal className="mb-6">
+        <Panel
+          title="Look up or paste a receipt"
+          right={
+            <div className="flex gap-2">
+              <button
+                className={`tk-btn ${mode === 'order' ? 'tk-btn--live' : ''}`}
+                style={{ padding: '6px 11px', fontSize: 12 }}
+                onClick={() => setMode('order')}
+              >
+                <Search size={13} /> Order ID
+              </button>
+              <button
+                className={`tk-btn ${mode === 'json' ? 'tk-btn--live' : ''}`}
+                style={{ padding: '6px 11px', fontSize: 12 }}
+                onClick={() => setMode('json')}
+              >
+                <FileJson size={13} /> Raw JSON
+              </button>
+            </div>
+          }
         >
-          Order ID
-        </Button>
-        <Button
-          variant={mode === 'json' ? 'primary' : 'secondary'}
-          size="sm"
-          icon={<FileJson size={14} />}
-          onClick={() => setMode('json')}
-        >
-          Raw receipt JSON
-        </Button>
-      </div>
+          {mode === 'order' ? (
+            <div>
+              <label htmlFor="order-id" className="tk-label">
+                Order ID
+              </label>
+              <div className="tk-terminal">
+                <Search size={15} className="text-ink-3 shrink-0" />
+                <input
+                  id="order-id"
+                  value={orderId}
+                  onChange={(e) => setOrderId(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && runVerification()}
+                  placeholder="Paste your order ID — receipts are fetched, then verified in your browser"
+                />
+              </div>
+              <p className="text-[11px] text-ink-3 mt-1.5">
+                The API only supplies the data; every signature check happens client-side.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label htmlFor="raw-receipt-json" className="tk-label">
+                Receipt JSON
+              </label>
+              <textarea
+                id="raw-receipt-json"
+                value={rawJson}
+                onChange={(e) => setRawJson(e.target.value)}
+                placeholder="Paste the full response of GET /v1/proof/receipt/<order_id>, a single receipt object, or an array of receipts"
+                rows={8}
+                className="w-full rounded-md border border-surface-border text-ink-1 placeholder:text-ink-4 font-mono text-[11.5px] p-3.5 mt-1 resize-y focus:border-live-600 focus:outline-none"
+                style={{ background: '#020202' }}
+              />
+              <p className="text-[11px] text-ink-3 mt-1">
+                Fully offline: pasted JSON never leaves your browser.
+              </p>
+            </div>
+          )}
 
-      <Card className="mb-6">
-        {mode === 'order' ? (
-          <Input
-            label="Order ID"
-            placeholder="Paste your order ID — receipts are fetched, then verified in your browser"
-            icon={<Search size={16} />}
-            value={orderId}
-            onChange={(e) => setOrderId(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && runVerification()}
-            hint="The API only supplies the data; every signature check happens client-side."
-          />
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="raw-receipt-json" className="text-sm font-medium text-gray-300">
-              Receipt JSON
+          <div className="mt-4 pt-4 border-t border-surface-border">
+            <label htmlFor="pinned-key" className="tk-label">
+              Pinned public key <span className="text-ink-4 normal-case tracking-normal">· optional but recommended</span>
             </label>
-            <textarea
-              id="raw-receipt-json"
-              value={rawJson}
-              onChange={(e) => setRawJson(e.target.value)}
-              placeholder='Paste the full response of GET /v1/proof/receipt/<order_id>, a single receipt object, or an array of receipts'
-              rows={8}
-              className="w-full rounded-lg bg-surface-elevated border border-surface-border text-white placeholder:text-gray-600 font-mono text-xs p-4 transition-all duration-200 focus:border-xmr-500/50 focus:ring-1 focus:ring-xmr-500/20 focus:outline-none resize-y"
-            />
-            <p className="text-xs text-gray-500">
-              Fully offline: pasted JSON never leaves your browser.
+            <div className="tk-terminal">
+              <KeyRound size={15} className="text-ink-3 shrink-0" />
+              <input
+                id="pinned-key"
+                value={pinnedKey}
+                onChange={(e) => handlePinnedKeyChange(e.target.value)}
+                placeholder="64 hex chars from /v1/proof/key — obtain it out-of-band and keep it"
+              />
+            </div>
+            <p className="text-[11px] text-ink-3 mt-1.5 leading-relaxed">
+              If set, every signature must be made by exactly this key. Without a pin, verification
+              proves internal consistency but not who signed. Stored only in your browser.
             </p>
           </div>
-        )}
 
-        <div className="mt-4 pt-4 border-t border-surface-border">
-          <Input
-            label="Pinned public key (optional but recommended)"
-            placeholder="64 hex chars from /v1/proof/key — obtain it out-of-band and keep it"
-            icon={<KeyRound size={16} />}
-            value={pinnedKey}
-            onChange={(e) => handlePinnedKeyChange(e.target.value)}
-            className="font-mono text-xs"
-            hint="If set, every signature must be made by exactly this key. Without a pin, verification proves internal consistency but not who signed. Stored only in your browser."
-          />
-        </div>
+          <button className="tk-btn tk-btn--live mt-4" onClick={runVerification} disabled={loading}>
+            <ShieldCheck size={15} /> {loading ? 'Verifying…' : 'Verify receipts'}
+          </button>
+        </Panel>
+      </Reveal>
 
-        <Button
-          className="mt-4"
-          icon={<ShieldCheck size={16} />}
-          onClick={runVerification}
-          loading={loading}
-        >
-          Verify receipts
-        </Button>
-      </Card>
-
-      {/* Error */}
+      {/* Error — fail loud */}
       {error && (
-        <Card className="mb-6 border-red-500/30 bg-red-500/5">
+        <div className="tk-card tk-card--critical mb-6">
           <div className="flex items-start gap-3">
-            <AlertTriangle size={18} className="shrink-0 mt-0.5 text-red-400" />
-            <p className="text-sm text-red-400">{error}</p>
+            <AlertTriangle size={18} className="shrink-0 mt-0.5" style={{ color: 'var(--tk-critical)' }} />
+            <p className="text-[13px]" style={{ color: 'var(--tk-critical)' }}>
+              {error}
+            </p>
           </div>
-        </Card>
+        </div>
       )}
 
-      {/* Verdict banner */}
+      {/* Verdict */}
       {verdict && receipts && (
         <>
-          <Card
-            className={cn(
-              'mb-6',
-              verdict.ok
-                ? 'border-green-500/40 bg-green-500/5'
-                : 'border-red-500/40 bg-red-500/5'
-            )}
+          <DecisionCard
+            className="mb-6"
+            tone={verdict.ok ? 'ok' : 'critical'}
+            title={<>Verdict</>}
+            chip={<Chip tone={verdict.ok ? 'ok' : 'critical'}>{verdict.ok ? 'verified ✓' : 'failed'}</Chip>}
           >
-            <div className="flex items-center gap-4">
+            <div className="tk-hero">
               {verdict.ok ? (
-                <ShieldCheck size={32} className="shrink-0 text-green-400" />
+                <>
+                  <span className="tk-hero__value" style={{ color: 'var(--tk-ok)' }}>
+                    {receipts.length}
+                  </span>
+                  <span className="tk-hero__unit">verified</span>
+                  <ShieldCheck size={28} style={{ color: 'var(--tk-ok)' }} />
+                </>
               ) : (
-                <ShieldX size={32} className="shrink-0 text-red-400" />
+                <>
+                  {/* fail loud: a receipt set that did not verify is struck through, never shown clean */}
+                  <span className="tk-hero__value tk-hero__value--degraded">{receipts.length}</span>
+                  <span className="tk-hero__unit">unverified</span>
+                  <ShieldX size={28} style={{ color: 'var(--tk-critical)' }} />
+                </>
               )}
-              <div>
-                <p
-                  className={cn(
-                    'text-lg font-bold',
-                    verdict.ok ? 'text-green-400' : 'text-red-400'
-                  )}
-                >
-                  {verdict.ok
-                    ? `All ${receipts.length} receipt${receipts.length === 1 ? '' : 's'} verified`
-                    : 'Verification failed'}
-                </p>
-                <p className="text-sm text-gray-400">
-                  {verdict.ok
-                    ? 'This history is exactly what the bridge signed.'
-                    : 'Do not trust this receipt data.'}
-                </p>
-              </div>
             </div>
+            <div className="tk-comprehend">
+              {verdict.ok
+                ? `All ${receipts.length} receipt${receipts.length === 1 ? '' : 's'} verified. This history is exactly what the bridge signed.`
+                : 'Verification failed. Do not trust this receipt data.'}
+            </div>
+
+            {!verdict.ok && (
+              <div className="tk-degraded">
+                <ShieldX size={15} /> One or more cryptographic checks did not pass.
+              </div>
+            )}
             {!verdict.singleKey && (
-              <p className="mt-3 pt-3 border-t border-red-500/20 text-sm text-red-400">
+              <p className="mt-3 pt-3 border-t border-surface-border text-[13px]" style={{ color: 'var(--tk-critical)' }}>
                 Receipts are signed by multiple different keys — investigate.
               </p>
             )}
             {verdict.partialHistory && (
-              <p className="mt-3 pt-3 border-t border-surface-border text-sm text-yellow-400">
-                Partial history: the first pasted receipt is not sequence 0, so linkage to
-                earlier receipts could not be checked.
+              <p className="mt-3 pt-3 border-t border-surface-border text-[13px]" style={{ color: 'var(--tk-warning)' }}>
+                Partial history: the first pasted receipt is not sequence 0, so linkage to earlier
+                receipts could not be checked.
               </p>
             )}
-          </Card>
+          </DecisionCard>
 
           <ReceiptTimeline receipts={receipts} verdict={verdict} />
         </>
       )}
+
+      <div className="mt-10 text-center text-[13px] text-ink-3">
+        <p>
+          Explore the full proof layer on the{' '}
+          <Link href="/transparency" className="text-live-500 hover:text-live-400">
+            Transparency page
+          </Link>
+          .
+        </p>
+      </div>
     </div>
   );
 }

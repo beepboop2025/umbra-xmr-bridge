@@ -6,6 +6,7 @@ import { ArrowRight, Lock, Eye, Shield, Zap, ShieldCheck } from 'lucide-react';
 import { useStats } from '@/hooks/useApi';
 import { apiClient } from '@/lib/api-client';
 import { LivingMap, type MapNode, type MapEdge } from '@/components/tikto/LivingMap';
+import { Reveal, Stagger, StaggerItem, NumberRoll } from '@/components/tikto/motion';
 
 // XMR at the hub, counterparties on a ring — the bridge as a topology.
 const RING = [
@@ -26,6 +27,8 @@ const MAP_NODES: MapNode[] = [
   }),
 ];
 const MAP_EDGES: MapEdge[] = RING.map((_, i) => [0, i + 1, 0.4 + (i % 3) * 0.2] as MapEdge);
+
+const compact = (v: number) => Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(v);
 
 const VALUE = [
   { icon: Lock, title: 'MPC threshold custody', body: 'No single party ever holds funds. Withdrawals require t-of-n signatures. The circuit breaker halts intake the moment aggregate flow looks wrong.', tone: 'ok' as const },
@@ -84,7 +87,7 @@ export default function HomePage() {
               <span className="tk-chip tk-chip--ok">● streaming</span>
             </div>
             <div className="tk-hero">
-              <span className="tk-hero__value">{rate ? rate.rate.toFixed(6) : '——'}</span>
+              <span className="tk-hero__value">{rate ? <NumberRoll value={rate.rate} format={(v) => v.toFixed(6)} /> : '——'}</span>
               <span className="tk-hero__unit">BTC</span>
               {rate?.change != null && (
                 <span className={`tk-hero__delta ${up ? 'tk-hero__delta--up' : 'tk-hero__delta--down'}`}>
@@ -116,34 +119,36 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Live metrics — tabular, calm */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 mt-14">
+      {/* Live metrics — tabular, calm, roll on update */}
+      <Reveal as="section" className="max-w-7xl mx-auto px-4 sm:px-6 mt-14">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-surface-border rounded-[14px] overflow-hidden border border-surface-border">
           {[
-            { label: 'Total volume', value: stats ? `$${Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(stats.total_volume_usd)}` : '——' },
-            { label: '24h volume', value: stats ? `$${Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(stats.volume_24h_usd)}` : '——' },
-            { label: 'Orders', value: stats ? String(stats.total_orders) : '——' },
-            { label: 'Chains', value: String(stats?.supported_chains ?? 6) },
+            { label: 'Total volume', num: stats?.total_volume_usd, fmt: (v: number) => `$${compact(v)}` },
+            { label: '24h volume', num: stats?.volume_24h_usd, fmt: (v: number) => `$${compact(v)}` },
+            { label: 'Orders', num: stats?.total_orders, fmt: (v: number) => String(Math.round(v)) },
+            { label: 'Chains', num: stats?.supported_chains ?? 6, fmt: (v: number) => String(Math.round(v)) },
           ].map((m) => (
             <div key={m.label} className="bg-surface-base px-5 py-6">
               <div className="tk-label">{m.label}</div>
-              <div className="tk-num text-2xl font-bold text-ink-0 mt-1.5">{m.value}</div>
+              <div className="tk-num text-2xl font-bold text-ink-0 mt-1.5">
+                {m.num != null ? <NumberRoll value={m.num} format={m.fmt} /> : '——'}
+              </div>
             </div>
           ))}
         </div>
-      </section>
+      </Reveal>
 
       {/* Value props — decision cards */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 mt-16">
-        <div className="flex items-center gap-3 mb-6">
+        <Reveal className="flex items-center gap-3 mb-6">
           <ShieldCheck size={16} className="text-live-500" />
           <h2 className="text-sm font-bold uppercase tracking-[0.08em] text-ink-3">Designed for the worst moment</h2>
-        </div>
-        <div className="grid md:grid-cols-2 gap-4">
+        </Reveal>
+        <Stagger className="grid md:grid-cols-2 gap-4">
           {VALUE.map((v) => {
             const Icon = v.icon;
             return (
-              <div key={v.title} className={`tk-card tk-card--${v.tone}`}>
+              <StaggerItem key={v.title} className={`tk-card tk-card--${v.tone}`}>
                 <div className="flex gap-4">
                   <div className="w-11 h-11 rounded-[11px] flex items-center justify-center shrink-0" style={{ background: 'var(--tk-surface-3)', border: '1px solid var(--tk-line-2)' }}>
                     <Icon size={20} className="text-live-500" />
@@ -153,14 +158,14 @@ export default function HomePage() {
                     <p className="text-[13px] text-ink-2 leading-relaxed">{v.body}</p>
                   </div>
                 </div>
-              </div>
+              </StaggerItem>
             );
           })}
-        </div>
+        </Stagger>
       </section>
 
       {/* How it works — the flow */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 mt-16">
+      <Reveal as="section" className="max-w-7xl mx-auto px-4 sm:px-6 mt-16">
         <h2 className="text-sm font-bold uppercase tracking-[0.08em] text-ink-3 mb-6">Four steps · ~12 min</h2>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
@@ -176,16 +181,16 @@ export default function HomePage() {
             </div>
           ))}
         </div>
-      </section>
+      </Reveal>
 
       {/* CTA */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 mt-16">
+      <Reveal as="section" className="max-w-7xl mx-auto px-4 sm:px-6 mt-16">
         <div className="tk-card tk-card--ok text-center py-12">
           <h2 className="text-2xl sm:text-3xl font-extrabold text-ink-0">Ready to bridge?</h2>
           <p className="text-ink-2 mt-3 mb-7">Swap XMR privately in under a minute. No account needed.</p>
           <Link href="/bridge" className="tk-btn tk-btn--live" style={{ padding: '12px 22px' }}>Launch Bridge <ArrowRight size={16} /></Link>
         </div>
-      </section>
+      </Reveal>
     </div>
   );
 }

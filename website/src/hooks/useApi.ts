@@ -51,15 +51,7 @@ export function useStats() {
     supported_chains: number;
   }>('/api/stats', {
     refreshInterval: 30000,
-    fallbackData: {
-      total_volume_usd: 12450000,
-      volume_24h_usd: 890000,
-      active_orders: 42,
-      completed_orders: 15230,
-      total_orders: 15480,
-      avg_completion_time: 12,
-      supported_chains: 8,
-    },
+    // No mock fallback — show real /api/stats (or a loading em-dash), never fake numbers.
   });
 }
 
@@ -68,9 +60,7 @@ export function useVolumeHistory(period = '7d') {
     points: Array<{ date: string; volume: number; count: number }>;
   }>(`/api/stats/volume?period=${period}`, {
     refreshInterval: 60000,
-    fallbackData: {
-      points: generateMockVolumeData(period),
-    },
+    // No mock fallback — an empty chart is honest, fake volume is not.
   });
 }
 
@@ -87,9 +77,7 @@ export function useRecentTransactions(limit = 20) {
     }>;
   }>(`/api/explorer/recent?limit=${limit}`, {
     refreshInterval: 15000,
-    fallbackData: {
-      transactions: generateMockTransactions(limit),
-    },
+    // No mock fallback — the explorer streams real transactions or shows an empty state.
   });
 }
 
@@ -105,46 +93,6 @@ export function useSystemHealth() {
     // No fallbackData — admin pages must show real data or an error state,
     // never fake "healthy" status that masks actual failures.
   });
-}
-
-// Mock data generators for fallback
-function generateMockVolumeData(period: string) {
-  const days = period === '24h' ? 24 : period === '7d' ? 7 : period === '30d' ? 30 : 7;
-  const points = [];
-  const now = Date.now();
-
-  for (let i = days; i >= 0; i--) {
-    const date = new Date(now - i * (period === '24h' ? 3600000 : 86400000));
-    points.push({
-      date: date.toISOString().split('T')[0],
-      volume: 80000 + Math.random() * 120000,
-      count: Math.floor(20 + Math.random() * 80),
-    });
-  }
-  return points;
-}
-
-function generateMockTransactions(limit: number) {
-  const chains = ['BTC', 'ETH', 'TON', 'SOL', 'ARB', 'BASE', 'USDC', 'USDT'];
-  const statuses = ['completed', 'completed', 'completed', 'exchanging', 'confirming', 'sending'];
-  const transactions = [];
-
-  for (let i = 0; i < limit; i++) {
-    const isXmrSource = Math.random() > 0.4;
-    const otherChain = chains[Math.floor(Math.random() * chains.length)];
-    const amount = 0.1 + Math.random() * 10;
-
-    transactions.push({
-      order_id: `ord_${Date.now()}_${i}`,
-      source_chain: isXmrSource ? 'XMR' : otherChain,
-      dest_chain: isXmrSource ? otherChain : 'XMR',
-      amount: Number(amount.toFixed(4)),
-      receive_amount: Number((amount * (0.95 + Math.random() * 0.04)).toFixed(4)),
-      status: statuses[Math.floor(Math.random() * statuses.length)],
-      created_at: new Date(Date.now() - i * 300000 - Math.random() * 600000).toISOString(),
-    });
-  }
-  return transactions;
 }
 
 export { apiClient };

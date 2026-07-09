@@ -5,6 +5,7 @@ import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { MobileNav } from '@/components/layout/MobileNav';
 import { ToastContainer } from '@/components/ui/Toast';
+import { SmoothScroll } from '@/components/tikto/SmoothScroll';
 
 // Tiktó display type
 const outfit = Outfit({
@@ -70,12 +71,14 @@ export default function RootLayout({
   return (
     <html lang="en" className={`dark ${outfit.variable} ${jetbrainsMono.variable}`}>
       <body className="tk min-h-screen bg-surface-deep text-ink-1 font-sans antialiased">
-        <div className="flex flex-col min-h-screen">
-          <Header />
-          <main className="flex-1">{children}</main>
-          <Footer />
-          <MobileNav />
-        </div>
+        <SmoothScroll>
+          <div className="flex flex-col min-h-screen">
+            <Header />
+            <main className="flex-1">{children}</main>
+            <Footer />
+            <MobileNav />
+          </div>
+        </SmoothScroll>
         <ToastContainer />
       </body>
     </html>

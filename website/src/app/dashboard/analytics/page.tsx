@@ -1,29 +1,19 @@
 'use client';
 
-import { useState } from 'react';
-import {
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
-} from 'recharts';
+import { useMemo, useState, useCallback } from 'react';
 import { Sidebar } from '@/components/layout/Sidebar';
-import { Card, CardHeader } from '@/components/ui/Card';
 import { StatsCards } from '@/components/dashboard/StatsCards';
+import { LivingMap, type MapNode, type MapEdge } from '@/components/tikto/LivingMap';
+import { Tick } from '@/components/tikto/Tick';
+import { Reveal } from '@/components/tikto/motion';
+import { Chip, TrustStrip } from '@/components/tikto/primitives';
 import { useVolumeHistory, useStats } from '@/hooks/useApi';
 import { useRateHistory } from '@/hooks/useRate';
-import { formatCurrency } from '@/lib/utils';
 import { COUNTERPARTY_CHAINS } from '@/lib/chains';
 import { cn } from '@/lib/utils';
+
+const usd = (v: number) =>
+  `$${new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(v)}`;
 
 const periods = [
   { key: '7d', label: '7 Days' },
@@ -31,178 +21,216 @@ const periods = [
   { key: '90d', label: '90 Days' },
 ];
 
-// Mock chain distribution data
-const chainDistribution = [
-  { name: 'BTC', value: 35, color: '#F7931A' },
-  { name: 'ETH', value: 25, color: '#627EEA' },
-  { name: 'TON', value: 18, color: '#0098EA' },
-  { name: 'SOL', value: 10, color: '#9945FF' },
-  { name: 'USDC', value: 7, color: '#2775CA' },
-  { name: 'Other', value: 5, color: '#505a70' },
-];
-
-// Mock fee revenue data
-const feeRevenue = Array.from({ length: 30 }, (_, i) => ({
-  date: new Date(Date.now() - (29 - i) * 86400000).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
+// Network topology: XMR hub + every live counterparty on the ring.
+const RING = COUNTERPARTY_CHAINS.map((c) => c.id);
+const MAP_NODES: MapNode[] = [
+  { x: 0.5, y: 0.5, r: 9, label: 'XMR' },
+  ...RING.map((s, i) => {
+    const a = (i / RING.length) * Math.PI * 2 - Math.PI / 2;
+    return { x: 0.5 + Math.cos(a) * 0.4, y: 0.5 + Math.sin(a) * 0.42, r: 5, label: s } as MapNode;
   }),
-  fees: 200 + Math.random() * 800,
-}));
+];
+const MAP_EDGES: MapEdge[] = RING.map((_, i) => [0, i + 1, 0.4 + (i % 3) * 0.2] as MapEdge);
+
+function DailyBars({ points }: { points: Array<{ date: string; volume: number; count: number }> }) {
+  if (!points.length) return <div className="text-ink-4 text-sm py-8 text-center tk-num">no data</div>;
+  const peak = Math.max(...points.map((p) => p.volume)) || 1;
+  const fmtDay = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return (
+    <div>
+      <div className="flex items-end gap-[3px] h-40">
+        {points.map((p, i) => {
+          const h = Math.max(3, Math.round((p.volume / peak) * 100));
+          return (
+            <div
+              key={i}
+              className="flex-1 min-w-0 flex items-end"
+              title={`${fmtDay(p.date)} · ${usd(p.volume)} · ${p.count} orders`}
+            >
+              <div
+                className="w-full rounded-t-[3px] transition-[height] duration-500 hover:opacity-100"
+                style={{
+                  height: `${h}%`,
+                  background: 'linear-gradient(180deg, var(--tk-live), var(--tk-live-dim))',
+                  opacity: 0.82,
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex justify-between mt-2 tk-label">
+        <span>{fmtDay(points[0].date)}</span>
+        <span>{fmtDay(points[points.length - 1].date)}</span>
+      </div>
+    </div>
+  );
+}
 
 export default function AnalyticsPage() {
   const [period, setPeriod] = useState('7d');
-  const { data: volumeData } = useVolumeHistory(period);
-  const { history } = useRateHistory('XMR', 'BTC', '7d');
+  const { data: volumeData, isLoading } = useVolumeHistory(period);
+  const { data: stats } = useStats();
+  const { history, change24h } = useRateHistory('XMR', 'BTC', '7d');
 
-  const volumeChartData = (volumeData?.points || []).map((p) => ({
-    date: new Date(p.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    volume: Math.round(p.volume),
-    count: p.count,
-  }));
+  // Volume spine for the Tick (memoised → scrub re-renders don't rebuild canvas).
+  const vol = useMemo(() => (volumeData?.points || []).map((p) => Math.round(p.volume)), [volumeData]);
+  const volBase = vol.length ? vol[vol.length - 1] : undefined;
+  const volDrift = useMemo(() => {
+    if (vol.length < 2 || !vol[0]) return 0.05;
+    const t = (vol[vol.length - 1] - vol[0]) / vol[0];
+    return Math.max(-0.35, Math.min(0.35, t * 0.5));
+  }, [vol]);
 
-  const rateChartData = history.slice(-50).map((p) => ({
-    time: new Date(p.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-    rate: p.rate,
-  }));
+  const rate = useMemo(() => history.slice(-60).map((p) => p.rate), [history]);
+  const rateBase = rate.length ? rate[rate.length - 1] : undefined;
+
+  const [scrub, setScrub] = useState<{ v: number; future: boolean } | null>(null);
+  const onScrub = useCallback(
+    (v: number, future: boolean) =>
+      setScrub((prev) => (prev && prev.v === v && prev.future === future ? prev : { v, future })),
+    []
+  );
+
+  const win = useMemo(() => {
+    if (!vol.length) return null;
+    const total = vol.reduce((a, b) => a + b, 0);
+    return { total, peak: Math.max(...vol), avg: total / vol.length, days: vol.length };
+  }, [vol]);
+
+  const up = (change24h ?? 0) >= 0;
+  const chains = stats?.supported_chains ?? RING.length;
 
   return (
     <div className="flex">
       <Sidebar />
-      <div className="flex-1 p-6 pb-24 md:pb-6 max-w-6xl">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-white">Analytics</h1>
-          <p className="text-sm text-gray-400 mt-1">Bridge performance and statistics</p>
+      <div className="flex-1 p-4 sm:p-6 pb-24 md:pb-6 max-w-6xl">
+        <Reveal>
+          <div className="mb-4">
+            <h1 className="text-2xl font-bold text-ink-0 tracking-tight">Analytics</h1>
+            <p className="text-sm text-ink-3 mt-1">Bridge performance across time and space.</p>
+          </div>
+          <TrustStrip
+            items={[
+              { label: 'live', value: `${chains} chains`, dot: stats ? 'var(--tk-ok)' : 'var(--tk-stale)' },
+              { label: 'window', value: period },
+              { label: 'as of', value: 'now' },
+              { label: 'source', value: 'CoinGecko + Kraken' },
+            ]}
+          />
+        </Reveal>
+
+        <div className="mt-5">
+          <StatsCards />
         </div>
 
-        <StatsCards />
+        {/* window selector */}
+        <Reveal>
+          <div className="mt-5 flex items-center gap-2 flex-wrap">
+            <span className="tk-label mr-1">window</span>
+            {periods.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => setPeriod(p.key)}
+                className={cn(
+                  'px-3.5 py-1.5 text-xs font-mono font-medium rounded-lg transition-colors',
+                  period === p.key ? 'bg-live-500 text-[#00141a]' : 'bg-surface-elevated text-ink-3 hover:text-ink-0'
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </Reveal>
 
-        {/* Period Selector */}
-        <div className="mt-6 flex gap-2">
-          {periods.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => setPeriod(p.key)}
-              className={cn(
-                'px-4 py-2 text-sm font-medium rounded-lg transition-colors',
-                period === p.key
-                  ? 'bg-xmr-500 text-white'
-                  : 'bg-surface-elevated text-gray-400 hover:text-white'
+        {/* Volume — temporal cone */}
+        <Reveal>
+          <div className="tk-panel mt-4">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <div className="flex items-center gap-3">
+                <span className="tk-panel__title" style={{ margin: 0 }}>Volume · temporal cone</span>
+                <span className="tk-label">navigable time</span>
+              </div>
+              {scrub && (
+                <span className="tk-tick__readout">
+                  {scrub.future ? 'projection' : 'actual'} <b>{usd(scrub.v)}</b>
+                </span>
               )}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Volume Chart */}
-        <Card className="mt-6">
-          <CardHeader title="Volume Over Time" subtitle={`Last ${period === '7d' ? '7 days' : period === '30d' ? '30 days' : '90 days'}`} />
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={volumeChartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
-                <defs>
-                  <linearGradient id="analyticsVolGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#FF6600" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="#FF6600" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e2640" vertical={false} />
-                <XAxis dataKey="date" stroke="#505a70" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis
-                  stroke="#505a70"
-                  fontSize={11}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}K`}
-                  width={55}
-                />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#0f1424', border: '1px solid #1e2640', borderRadius: '8px', fontSize: '12px' }}
-                  formatter={(value: number) => [formatCurrency(value), 'Volume']}
-                />
-                <Area type="monotone" dataKey="volume" stroke="#FF6600" strokeWidth={2} fill="url(#analyticsVolGrad)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-          {/* Rate History */}
-          <Card>
-            <CardHeader title="XMR/BTC Rate" subtitle="Last 7 days" />
-            <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={rateChartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
-                  <defs>
-                    <linearGradient id="rateAnalyticsGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#0098EA" stopOpacity={0.3} />
-                      <stop offset="100%" stopColor="#0098EA" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2640" vertical={false} />
-                  <XAxis dataKey="time" stroke="#505a70" fontSize={10} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                  <YAxis stroke="#505a70" fontSize={10} tickLine={false} axisLine={false} domain={['auto', 'auto']} width={60} tickFormatter={(v: number) => v.toFixed(5)} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f1424', border: '1px solid #1e2640', borderRadius: '8px', fontSize: '12px' }} />
-                  <Area type="monotone" dataKey="rate" stroke="#0098EA" strokeWidth={2} fill="url(#rateAnalyticsGrad)" />
-                </AreaChart>
-              </ResponsiveContainer>
             </div>
-          </Card>
-
-          {/* Chain Distribution */}
-          <Card>
-            <CardHeader title="Chain Distribution" subtitle="By volume" />
-            <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={chainDistribution}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={85}
-                    paddingAngle={3}
-                    dataKey="value"
+            {volBase != null ? (
+              <Tick past={vol} base={volBase} drift={volDrift} volatility={1} height={190} onScrub={onScrub} />
+            ) : (
+              <div className="h-[190px] flex items-center justify-center text-ink-4 text-sm tk-num">
+                {isLoading ? 'loading…' : 'no data'}
+              </div>
+            )}
+            {win && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
+                {[
+                  { k: `${period} total`, v: usd(win.total) },
+                  { k: 'peak day', v: usd(win.peak) },
+                  { k: 'daily avg', v: usd(win.avg) },
+                  { k: 'data points', v: String(win.days) },
+                ].map((s) => (
+                  <div
+                    key={s.k}
+                    className="rounded-[10px] px-3 py-2"
+                    style={{ background: 'var(--tk-surface-2)', border: '1px solid var(--tk-line-1)' }}
                   >
-                    {chainDistribution.map((entry, index) => (
-                      <Cell key={index} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Legend
-                    verticalAlign="middle"
-                    align="right"
-                    layout="vertical"
-                    formatter={(value: string) => <span className="text-xs text-gray-400">{value}</span>}
-                  />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f1424', border: '1px solid #1e2640', borderRadius: '8px', fontSize: '12px' }}
-                    formatter={(value: number) => [`${value}%`, 'Share']}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+                    <div className="tk-label">{s.k}</div>
+                    <div className="tk-num text-sm font-bold text-ink-0 mt-0.5">{s.v}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Reveal>
+
+        <div className="grid lg:grid-cols-2 gap-4 mt-4">
+          {/* Rate cone */}
+          <Reveal>
+            <div className="tk-panel h-full">
+              <div className="flex items-center justify-between mb-3 gap-2">
+                <div className="flex items-center gap-3">
+                  <span className="tk-panel__title" style={{ margin: 0 }}>XMR / BTC · rate</span>
+                  <span className="tk-label">navigable time</span>
+                </div>
+                <Chip tone={up ? 'ok' : 'critical'}>
+                  {up ? '▲' : '▼'} {Math.abs(change24h ?? 0).toFixed(2)}% 24h
+                </Chip>
+              </div>
+              {rateBase != null ? (
+                <Tick past={rate} base={rateBase} drift={(change24h ?? 0) / 100} volatility={0.8} height={190} />
+              ) : (
+                <div className="h-[190px] flex items-center justify-center text-ink-4 text-sm tk-num">
+                  loading rate history…
+                </div>
+              )}
             </div>
-          </Card>
+          </Reveal>
+
+          {/* Network */}
+          <Reveal delay={0.05}>
+            <div className="tk-panel h-full">
+              <div className="flex items-center justify-between mb-3">
+                <span className="tk-panel__title" style={{ margin: 0 }}>Liquidity network</span>
+                <span className="tk-label">navigable space</span>
+              </div>
+              <LivingMap nodes={MAP_NODES} edges={MAP_EDGES} height={300} />
+            </div>
+          </Reveal>
         </div>
 
-        {/* Fee Revenue */}
-        <Card className="mt-6">
-          <CardHeader title="Fee Revenue" subtitle="Daily bridge fees collected" />
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={feeRevenue} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e2640" vertical={false} />
-                <XAxis dataKey="date" stroke="#505a70" fontSize={10} tickLine={false} axisLine={false} interval={4} />
-                <YAxis stroke="#505a70" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v: number) => `$${v.toFixed(0)}`} width={45} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#0f1424', border: '1px solid #1e2640', borderRadius: '8px', fontSize: '12px' }}
-                  formatter={(value: number) => [formatCurrency(value), 'Fees']}
-                />
-                <Bar dataKey="fees" fill="#22c55e" radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+        {/* Daily flow — real per-day volume */}
+        <Reveal>
+          <div className="tk-panel mt-4">
+            <div className="flex items-center justify-between mb-4">
+              <span className="tk-panel__title" style={{ margin: 0 }}>Daily flow</span>
+              <span className="tk-label">{period} · {win?.days ?? 0} points</span>
+            </div>
+            <DailyBars points={volumeData?.points || []} />
           </div>
-        </Card>
+        </Reveal>
       </div>
     </div>
   );

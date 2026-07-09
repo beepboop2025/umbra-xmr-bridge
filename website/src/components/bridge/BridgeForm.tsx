@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { ArrowUpDown, AlertCircle, Shield } from 'lucide-react';
+import { useState, useCallback, useEffect } from 'react';
+import { ArrowUpDown, AlertCircle, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useBridgeStore } from '@/stores/bridge-store';
 import { useRate } from '@/hooks/useRate';
 import { useCreateOrder } from '@/hooks/useOrders';
 import { validateBridgeRequest } from '@/lib/validators';
-import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
+import { CHAINS } from '@/lib/chains';
+import { DecisionCard, Hero, Chip, ConfidenceMeter } from '@/components/tikto/primitives';
+import { NumberRoll } from '@/components/tikto/motion';
 import { ChainSelector } from './ChainSelector';
 import { AmountInput } from './AmountInput';
 import { AddressInput } from './AddressInput';
@@ -18,11 +19,28 @@ import { ConfirmModal } from './ConfirmModal';
 
 export function BridgeForm() {
   const bridge = useBridgeStore();
-  const { rate, feePercent, networkFee, estimatedTime, minAmount, maxAmount } = useRate();
+  const { rate, feePercent, networkFee, estimatedTime, maxAmount } = useRate();
   const { createOrder } = useCreateOrder();
   const [showConfirm, setShowConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Quote-freshness: a live streaming quote breathing within the "fresh" band,
+  // resetting whenever the rate updates. (Both clocks start at 0 to stay
+  // hydration-stable, then advance on the client.)
+  const [quoteTs, setQuoteTs] = useState(0);
+  const [nowTs, setNowTs] = useState(0);
+  useEffect(() => {
+    setNowTs(Date.now());
+    setQuoteTs((t) => (t === 0 ? Date.now() : t));
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    if (rate > 0) setQuoteTs(Date.now());
+  }, [rate]);
+  const ageSec = quoteTs && nowTs ? Math.min(30, Math.max(0, Math.round((nowTs - quoteTs) / 1000))) : 0;
+  const freshness = 0.8 + 0.2 * (1 - ageSec / 30);
 
   const handleFlip = useCallback(() => {
     bridge.flipDirection();
@@ -66,84 +84,100 @@ export function BridgeForm() {
   }, [bridge, createOrder]);
 
   const isXmrSource = bridge.sourceChain === 'XMR';
+  const srcSym = CHAINS[bridge.sourceChain]?.symbol ?? bridge.sourceChain;
+  const dst = CHAINS[bridge.destChain];
+  const dstSym = dst?.symbol ?? bridge.destChain;
+
+  const destNum = parseFloat(bridge.destAmount) || 0;
+  const hasQuote = parseFloat(bridge.sourceAmount || '0') > 0 && rate > 0 && destNum > 0;
+  const dp = dst?.type === 'stablecoin' ? 2 : 6;
 
   return (
     <>
-      <Card className="max-w-lg w-full" padding="lg" gradient>
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-xl font-bold text-white">Bridge</h2>
-            <p className="text-sm text-gray-400 mt-0.5">Swap XMR privately</p>
-          </div>
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/10 border border-green-500/20">
-            <Shield size={12} className="text-green-400" />
-            <span className="text-xs text-green-400 font-medium">No KYC</span>
-          </div>
-        </div>
+      <DecisionCard
+        tone="ok"
+        className="max-w-lg w-full"
+        title={<span className="tk-num">{srcSym} → {dstSym} · swap</span>}
+        chip={<Chip tone="ok">● live</Chip>}
+      >
+        <p className="text-[11px] font-mono text-ink-4 -mt-2 mb-4">
+          as of now · non-custodial · quote locks 30 min on order
+        </p>
 
-        {/* Source Chain */}
-        <div className="space-y-4">
+        {/* YOU SEND */}
+        <div className="space-y-3">
+          <div className="tk-label">You send</div>
           <div className="relative">
             <ChainSelector
               selectedChain={bridge.sourceChain}
               onSelect={bridge.setSourceChain}
               excludeChain={bridge.destChain}
               xmrOnly={isXmrSource}
-              label="From"
             />
           </div>
-
           <AmountInput
-            label="You Send"
             chain={bridge.sourceChain}
             value={bridge.sourceAmount}
             onChange={bridge.setSourceAmount}
             maxAmount={maxAmount}
           />
+        </div>
 
-          {/* Flip Button */}
-          <div className="flex justify-center -my-1 relative z-10">
-            <motion.button
-              whileTap={{ scale: 0.9, rotate: 180 }}
-              onClick={handleFlip}
-              className="w-10 h-10 rounded-xl bg-surface-elevated border border-surface-border flex items-center justify-center text-gray-400 hover:text-xmr-400 hover:border-xmr-500/30 transition-colors"
-            >
-              <ArrowUpDown size={18} />
-            </motion.button>
-          </div>
+        {/* Flip */}
+        <div className="flex justify-center my-3 relative z-10">
+          <motion.button
+            whileTap={{ scale: 0.9, rotate: 180 }}
+            onClick={handleFlip}
+            aria-label="Flip direction"
+            className="w-10 h-10 rounded-[11px] bg-surface-elevated border border-surface-border flex items-center justify-center text-ink-3 hover:text-live-500 hover:border-live-500/40 transition-colors"
+          >
+            <ArrowUpDown size={18} />
+          </motion.button>
+        </div>
 
-          {/* Dest Chain */}
+        {/* YOU RECEIVE — the hero number */}
+        <div className="space-y-3">
+          <div className="tk-label">You receive</div>
           <div className="relative">
             <ChainSelector
               selectedChain={bridge.destChain}
               onSelect={bridge.setDestChain}
               excludeChain={bridge.sourceChain}
               xmrOnly={!isXmrSource}
-              label="To"
             />
           </div>
 
-          <AmountInput
-            label="You Receive"
-            chain={bridge.destChain}
-            value={bridge.destAmount}
-            readOnly
-          />
+          <div className="rounded-[14px] bg-surface-base border border-surface-border px-4 py-4">
+            <Hero
+              value={hasQuote ? <NumberRoll value={destNum} format={(v) => v.toFixed(dp)} /> : '——'}
+              unit={dstSym}
+            />
+            <div className="mt-4 pt-3 border-t border-surface-border">
+              <RateDisplay source={bridge.sourceChain} dest={bridge.destChain} />
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <ConfidenceMeter value={freshness} />
+                <span className="tk-label" style={{ color: 'var(--tk-text-3)' }}>quote freshness</span>
+              </div>
+              <span className="text-[11px] font-mono text-ink-4">updated {ageSec}s ago · locks 30m on order</span>
+            </div>
+          </div>
+        </div>
 
-          {/* Rate Display */}
-          <RateDisplay source={bridge.sourceChain} dest={bridge.destChain} />
-
-          {/* Destination Address */}
+        {/* Destination address */}
+        <div className="mt-4">
           <AddressInput
-            label={`${bridge.destChain} Destination Address`}
+            label={`${dstSym} destination address`}
             chain={bridge.destChain}
             value={bridge.destAddress}
             onChange={bridge.setDestAddress}
           />
+        </div>
 
-          {/* Fee Breakdown */}
-          {bridge.sourceAmount && parseFloat(bridge.sourceAmount) > 0 && rate > 0 && (
+        {/* Fee breakdown — provenance on pull */}
+        {bridge.sourceAmount && parseFloat(bridge.sourceAmount) > 0 && rate > 0 && (
+          <div className="mt-4">
             <FeeBreakdown
               sourceChain={bridge.sourceChain}
               destChain={bridge.destChain}
@@ -154,31 +188,34 @@ export function BridgeForm() {
               networkFee={networkFee}
               estimatedTime={estimatedTime}
             />
-          )}
+          </div>
+        )}
 
-          {/* Error */}
-          {formError && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-              <AlertCircle size={14} className="text-red-400 shrink-0" />
-              <p className="text-xs text-red-400">{formError}</p>
-            </div>
-          )}
-
-          {/* Submit */}
-          <Button
-            size="xl"
-            fullWidth
-            onClick={handleSubmit}
-            disabled={!bridge.sourceAmount || !bridge.destAddress || !rate}
+        {/* Fail-loud error */}
+        {formError && (
+          <div
+            className="mt-4 flex items-center gap-2 p-3 rounded-[11px]"
+            style={{ background: 'var(--tk-critical-bg)', border: '1px solid var(--tk-critical-line)' }}
           >
-            Bridge {bridge.sourceChain} to {bridge.destChain}
-          </Button>
+            <AlertCircle size={14} style={{ color: 'var(--tk-critical)' }} className="shrink-0" />
+            <p className="text-[12px] font-medium" style={{ color: 'var(--tk-critical)' }}>{formError}</p>
+          </div>
+        )}
 
-          <p className="text-center text-xs text-gray-600">
-            Non-custodial swap. No registration required.
-          </p>
-        </div>
-      </Card>
+        {/* The act — cyan, opens the forcing-function confirm */}
+        <button
+          onClick={handleSubmit}
+          disabled={!bridge.sourceAmount || !bridge.destAddress || !rate}
+          className="tk-btn tk-btn--live w-full justify-center mt-5 disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{ padding: '13px 16px', fontSize: 13.5 }}
+        >
+          Review swap · {srcSym} → {dstSym} <ArrowRight size={15} />
+        </button>
+
+        <p className="text-center text-[11px] font-mono text-ink-4 mt-3">
+          no account · no KYC · signed receipt on completion
+        </p>
+      </DecisionCard>
 
       <ConfirmModal
         isOpen={showConfirm}

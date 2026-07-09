@@ -14,6 +14,10 @@ interface ChainSelectorProps {
   label?: string;
 }
 
+/**
+ * Chain glyph — the ONE place a chain's own identity colour is allowed.
+ * Kept stable: consumed by the explorer, dashboard and admin tables.
+ */
 function ChainIcon({ chain, size = 24 }: { chain: Chain; size?: number }) {
   if (chain.icon) {
     return (
@@ -29,12 +33,13 @@ function ChainIcon({ chain, size = 24 }: { chain: Chain; size?: number }) {
 
   return (
     <div
-      className="rounded-full flex items-center justify-center text-white font-bold"
+      className="rounded-full flex items-center justify-center font-bold text-white"
       style={{
         width: size,
         height: size,
-        backgroundColor: chain.color,
-        fontSize: size * 0.4,
+        background: chain.color,
+        fontSize: size * 0.42,
+        boxShadow: `0 0 0 1px ${chain.color}55, 0 0 12px ${chain.color}33`,
       }}
     >
       {chain.symbol.charAt(0)}
@@ -70,15 +75,16 @@ export function ChainSelector({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // XMR is fixed on one leg — render a calm, non-interactive identity plate.
   if (xmrOnly && selected) {
     return (
       <div className="flex flex-col gap-1.5">
-        {label && <label className="text-sm font-medium text-gray-300">{label}</label>}
-        <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-surface-elevated border border-surface-border">
-          <ChainIcon chain={selected} />
+        {label && <span className="tk-label">{label}</span>}
+        <div className="flex items-center gap-3 px-4 py-3 rounded-[11px] bg-surface-elevated border border-surface-border">
+          <ChainIcon chain={selected} size={28} />
           <div>
-            <p className="text-sm font-medium text-white">{selected.name}</p>
-            <p className="text-xs text-gray-500">{selected.symbol}</p>
+            <p className="text-sm font-semibold text-ink-0">{selected.name}</p>
+            <p className="text-[11px] font-mono text-ink-3">{selected.symbol} · fixed</p>
           </div>
         </div>
       </div>
@@ -87,47 +93,48 @@ export function ChainSelector({
 
   return (
     <div className="flex flex-col gap-1.5" ref={dropdownRef}>
-      {label && <label className="text-sm font-medium text-gray-300">{label}</label>}
+      {label && <span className="tk-label">{label}</span>}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          'flex items-center justify-between gap-3 px-4 py-3 rounded-lg bg-surface-elevated border transition-colors',
-          isOpen ? 'border-xmr-500/50' : 'border-surface-border hover:border-surface-hover'
+          'flex items-center justify-between gap-3 px-4 py-3 rounded-[11px] bg-surface-elevated border transition-colors',
+          isOpen ? 'border-live-500/60' : 'border-surface-border hover:border-surface-hover'
         )}
       >
         <div className="flex items-center gap-3">
-          {selected && <ChainIcon chain={selected} />}
+          {selected && <ChainIcon chain={selected} size={28} />}
           <div className="text-left">
-            <p className="text-sm font-medium text-white">{selected?.name || 'Select chain'}</p>
-            {selected?.network && (
-              <p className="text-xs text-gray-500">{selected.network}</p>
-            )}
+            <p className="text-sm font-semibold text-ink-0">{selected?.name || 'Select chain'}</p>
+            <p className="text-[11px] font-mono text-ink-3">
+              {selected?.symbol}
+              {selected?.network && ` · ${selected.network}`}
+            </p>
           </div>
         </div>
         <ChevronDown
           size={16}
-          className={cn('text-gray-500 transition-transform', isOpen && 'rotate-180')}
+          className={cn('text-ink-3 transition-transform', isOpen && 'rotate-180')}
         />
       </button>
 
       {isOpen && (
-        <div className="absolute z-50 mt-1 w-full max-h-80 overflow-hidden rounded-xl border border-surface-border bg-surface-card shadow-2xl">
+        <div className="absolute z-50 mt-1 w-full max-h-80 overflow-hidden rounded-[14px] border border-surface-border bg-surface-card shadow-2xl">
           <div className="p-2 border-b border-surface-border">
             <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3" />
               <input
                 type="text"
-                placeholder="Search chains..."
+                placeholder="Search chains…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full h-9 pl-9 pr-3 rounded-lg bg-surface-elevated border border-surface-border text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-xmr-500/50"
+                className="w-full h-9 pl-9 pr-3 rounded-lg bg-surface-elevated border border-surface-border text-sm text-ink-0 placeholder:text-ink-4 focus:outline-none focus:border-live-500/60"
                 autoFocus
               />
             </div>
           </div>
           <div className="overflow-y-auto max-h-60 p-1">
             {chains.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-4">No chains found</p>
+              <p className="text-sm text-ink-3 text-center py-4">No chains found</p>
             ) : (
               chains.map((chain) => (
                 <button
@@ -140,20 +147,20 @@ export function ChainSelector({
                   className={cn(
                     'flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-left transition-colors',
                     chain.id === selectedChain
-                      ? 'bg-xmr-500/10 text-xmr-400'
-                      : 'text-white hover:bg-surface-elevated'
+                      ? 'bg-live-500/10 text-live-500'
+                      : 'text-ink-0 hover:bg-surface-elevated'
                   )}
                 >
                   <ChainIcon chain={chain} size={28} />
                   <div className="flex-1">
-                    <p className="text-sm font-medium">{chain.name}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-sm font-semibold">{chain.name}</p>
+                    <p className="text-[11px] font-mono text-ink-3">
                       {chain.symbol}
                       {chain.network && ` on ${chain.network}`}
                     </p>
                   </div>
                   {chain.type === 'stablecoin' && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 font-medium">
+                    <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ color: 'var(--tk-ok)', background: 'var(--tk-ok-bg)' }}>
                       Stable
                     </span>
                   )}

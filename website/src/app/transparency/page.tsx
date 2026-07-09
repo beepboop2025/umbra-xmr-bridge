@@ -1,27 +1,28 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import {
   ShieldCheck,
-  ShieldX,
   ShieldAlert,
-  Copy,
-  Pin,
+  Activity,
   GitCommitHorizontal,
   Eye,
   ReceiptText,
+  Copy,
+  Pin,
+  Atom,
   Check,
   X,
-  Atom,
+  Minus,
+  KeyRound,
+  ScrollText,
 } from 'lucide-react';
-import { Card, CardHeader } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
-import { Skeleton, SkeletonTable } from '@/components/ui/Skeleton';
-import { Table, type Column } from '@/components/ui/Table';
 import { useApi } from '@/hooks/useApi';
 import { useUIStore } from '@/stores/ui-store';
-import { cn, copyToClipboard, formatDate, formatTime, truncateHash } from '@/lib/utils';
+import { copyToClipboard, formatDate, formatTime, truncateHash } from '@/lib/utils';
+import { Chip, DecisionCard, Panel, Provenance, TrustStrip } from '@/components/tikto/primitives';
+import { Reveal, Stagger, StaggerItem, NumberRoll } from '@/components/tikto/motion';
 import {
   verifyCheckpoint,
   verifyCanary,
@@ -35,26 +36,71 @@ import {
   type ProofStatus,
 } from '@/lib/proof';
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_HOST = (() => {
+  try {
+    return new URL(API_BASE).host;
+  } catch {
+    return API_BASE;
+  }
+})();
+
+type RowTone = 'ok' | 'critical' | 'watch' | 'stale';
+
+// ---------------------------------------------------------------------------
+// Small shared pieces
+// ---------------------------------------------------------------------------
+
 function CopyButton({ value, label }: { value: string; label: string }) {
   const addToast = useUIStore((s) => s.addToast);
   return (
     <button
-      onClick={() => {
+      onClick={() =>
         copyToClipboard(value).then(() =>
           addToast({ type: 'success', title: 'Copied', message: label })
-        );
-      }}
-      className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-surface-elevated transition-colors"
+        )
+      }
+      className="p-1 rounded-md text-ink-3 hover:text-live-500 hover:bg-surface-elevated transition-colors"
       aria-label={`Copy ${label}`}
     >
-      <Copy size={14} />
+      <Copy size={13} />
     </button>
   );
 }
 
+/** One glass-box verification step: icon + colour + text, never colour alone. */
+function CheckRow({ ok, tone, children }: { ok?: boolean; tone?: RowTone; children: ReactNode }) {
+  const t: RowTone = tone ?? (ok ? 'ok' : 'critical');
+  const color = `var(--tk-${t})`;
+  const Icon = t === 'ok' ? Check : t === 'critical' ? X : t === 'watch' ? Atom : Minus;
+  const textColor =
+    t === 'critical' ? 'var(--tk-critical)' : t === 'stale' ? 'var(--tk-text-3)' : 'var(--tk-text-2)';
+  return (
+    <li className="flex items-baseline gap-2 text-[13px]">
+      <Icon size={14} className="shrink-0 translate-y-0.5" style={{ color }} />
+      <span style={{ color: textColor }}>{children}</span>
+    </li>
+  );
+}
+
+function KV({ k, children }: { k: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="tk-label" style={{ margin: 0 }}>
+        {k}
+      </dt>
+      <dd className="font-mono text-[13px] text-ink-1 flex items-center gap-1">{children}</dd>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
-// Sentinel status hero
+// Sentinel status — the hero decision
 // ---------------------------------------------------------------------------
+
+function eventLevel(kind: string): RowTone {
+  return kind === 'trip' || kind === 'pause' ? 'critical' : kind === 'resume' ? 'ok' : 'watch';
+}
 
 function StatusHero() {
   const { data, error, isLoading } = useApi<ProofStatus>('/v1/proof/status', {
@@ -63,115 +109,100 @@ function StatusHero() {
 
   if (isLoading && !data) {
     return (
-      <Card padding="lg">
-        <Skeleton className="h-10 w-64 mb-3" />
-        <Skeleton className="h-4 w-96" />
-      </Card>
+      <div className="tk-card">
+        <div className="shimmer h-9 w-56 rounded-md" />
+        <div className="shimmer h-4 w-80 rounded-md mt-3" />
+      </div>
     );
   }
 
+  // Fail loud: an unconfirmable sentinel is a reason for caution, never comfort.
   if (error || !data) {
     return (
-      <Card padding="lg" className="border-yellow-500/30 bg-yellow-500/5">
-        <div className="flex items-center gap-4">
-          <ShieldAlert size={36} className="shrink-0 text-yellow-400" />
-          <div>
-            <p className="text-xl font-bold text-yellow-400">STATUS UNAVAILABLE</p>
-            <p className="text-sm text-gray-400 mt-1">
-              Could not reach /v1/proof/status. The sentinel state cannot be confirmed right
-              now — treat this as a reason for caution, not comfort.
-            </p>
-          </div>
+      <DecisionCard tone="critical" title={<><ShieldAlert size={14} /> Intake sentinel</>} chip={<Chip tone="stale">unreachable</Chip>}>
+        <div className="tk-hero">
+          <span className="tk-hero__value tk-hero__value--degraded" style={{ fontSize: 'clamp(28px,5vw,40px)' }}>
+            UNKNOWN
+          </span>
         </div>
-      </Card>
+        <div className="tk-degraded">
+          <ShieldAlert size={15} /> Could not reach /v1/proof/status. The sentinel state cannot be
+          confirmed right now. Treat this as a reason for caution.
+        </div>
+      </DecisionCard>
     );
   }
 
   const accepting = data.accepting_orders;
+  const tone: RowTone = accepting ? 'ok' : 'critical';
 
   return (
-    <Card
-      padding="lg"
-      className={cn(
-        accepting ? 'border-green-500/40 bg-green-500/5' : 'border-red-500/40 bg-red-500/5'
-      )}
+    <DecisionCard
+      tone={tone}
+      title={<><Activity size={14} /> Intake sentinel · drain-guard</>}
+      chip={<Chip tone={tone}>● live</Chip>}
     >
-      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+      <div className="tk-hero">
+        <span
+          className="tk-hero__value"
+          style={{ color: `var(--tk-${tone})`, fontSize: 'clamp(28px,5.2vw,44px)' }}
+        >
+          {accepting ? 'ACCEPTING' : 'PAUSED'}
+        </span>
         {accepting ? (
-          <ShieldCheck size={44} className="shrink-0 text-green-400" />
+          <ShieldCheck size={26} style={{ color: 'var(--tk-ok)' }} />
         ) : (
-          <ShieldX size={44} className="shrink-0 text-red-400" />
+          <ShieldAlert size={26} style={{ color: 'var(--tk-critical)' }} />
         )}
-        <div className="flex-1">
-          <div className="flex flex-wrap items-center gap-3">
-            <p
-              className={cn(
-                'text-2xl sm:text-3xl font-bold tracking-tight',
-                accepting ? 'text-green-400' : 'text-red-400'
-              )}
-            >
-              {accepting ? 'ACCEPTING ORDERS' : 'INTAKE PAUSED'}
-            </p>
-            <Badge variant={accepting ? 'success' : 'error'} dot pulse>
-              Live
-            </Badge>
-          </div>
-          {accepting ? (
-            <p className="text-sm text-gray-400 mt-1">
-              The drain-guard sentinel has not tripped. Every new order is being accepted and
-              receipted.
-            </p>
-          ) : (
-            data.paused && (
-              <div className="text-sm text-gray-300 mt-2 space-y-0.5">
-                <p>
-                  <span className="text-gray-500">Reason:</span> {data.paused.reason}
-                </p>
-                <p className="text-gray-500 text-xs">
-                  Check <span className="font-mono">{data.paused.check}</span> tripped by{' '}
-                  {data.paused.actor} at {formatDate(data.paused.tripped_at)}
-                </p>
-              </div>
-            )
-          )}
-        </div>
       </div>
+
+      {accepting ? (
+        <div className="tk-comprehend">
+          The drain-guard sentinel has not tripped. Every new order is accepted and receipted.
+        </div>
+      ) : (
+        data.paused && (
+          <>
+            <div className="tk-comprehend" style={{ color: 'var(--tk-critical)' }}>
+              {data.paused.reason}
+            </div>
+            <div className="tk-project font-mono">
+              check {data.paused.check} · tripped by {data.paused.actor} · {formatDate(data.paused.tripped_at)}
+            </div>
+          </>
+        )
+      )}
 
       {data.recent_events.length > 0 && (
         <div className="mt-5 pt-4 border-t border-surface-border">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-            Recent sentinel events
-          </h3>
-          <ul className="space-y-2">
-            {data.recent_events.map((event) => (
-              <li key={event.id} className="flex items-start gap-3 text-sm">
-                <Badge
-                  variant={event.kind === 'trip' || event.kind === 'pause' ? 'error' : 'default'}
-                  size="sm"
-                  className="shrink-0 mt-0.5"
-                >
-                  {event.kind}
-                </Badge>
-                <div className="min-w-0">
-                  <p className="text-gray-300">
-                    <span className="font-mono text-xs text-gray-400">{event.check_name}</span>{' '}
-                    — {event.reason}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {event.actor} · {formatTime(event.created_at)}
-                  </p>
+          <div className="tk-label mb-3">Recent sentinel events</div>
+          <div className="tk-alarms">
+            {data.recent_events.map((event) => {
+              const lvl = eventLevel(event.kind);
+              return (
+                <div key={event.id} className={`tk-alarm tk-alarm--${lvl === 'ok' ? 'watch' : lvl}`}>
+                  <Chip tone={lvl}>{event.kind}</Chip>
+                  <div>
+                    <div className="tk-alarm__msg">
+                      <span className="font-mono text-ink-2">{event.check_name}</span> — {event.reason}
+                    </div>
+                    <div className="tk-alarm__meta">{event.actor}</div>
+                  </div>
+                  <span className="font-mono text-[10.5px] text-ink-3 whitespace-nowrap">
+                    {formatTime(event.created_at)}
+                  </span>
                 </div>
-              </li>
-            ))}
-          </ul>
+              );
+            })}
+          </div>
         </div>
       )}
-    </Card>
+    </DecisionCard>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Latest checkpoint
+// Latest checkpoint — the newest signed commitment
 // ---------------------------------------------------------------------------
 
 function LatestCheckpointCard() {
@@ -191,104 +222,88 @@ function LatestCheckpointCard() {
     }
   };
 
+  const cp = data?.checkpoint;
+
   return (
-    <Card>
-      <CardHeader
-        title="Latest Checkpoint"
-        subtitle="The bridge's most recent signed commitment to its audit log"
-      />
-      {isLoading && !data ? (
+    <DecisionCard
+      tone={verdict ? (verdict.ok ? 'ok' : 'critical') : 'watch'}
+      title={<><GitCommitHorizontal size={14} /> Latest checkpoint</>}
+      chip={<Chip tone="watch">signed head</Chip>}
+    >
+      {isLoading && !cp ? (
         <div className="space-y-3">
-          <Skeleton className="h-4 w-40" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-32" />
+          <div className="shimmer h-10 w-40 rounded-md" />
+          <div className="shimmer h-4 w-full rounded-md" />
         </div>
-      ) : error || !data ? (
-        <p className="text-sm text-gray-500">Could not load the latest checkpoint.</p>
+      ) : error || !cp ? (
+        <div className="tk-degraded">
+          <ShieldAlert size={15} /> Could not load the latest checkpoint.
+        </div>
       ) : (
         <>
-          <dl className="space-y-3 text-sm">
-            <div className="flex items-center justify-between gap-2">
-              <dt className="text-gray-400">Tree size</dt>
-              <dd className="font-mono text-white">
-                {data.checkpoint.tree_size.toLocaleString()} entries
-              </dd>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <dt className="text-gray-400">Root hash</dt>
-              <dd className="flex items-center gap-1 font-mono text-white">
-                {truncateHash(data.checkpoint.root_hash, 10)}
-                <CopyButton value={data.checkpoint.root_hash} label="Root hash" />
-              </dd>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <dt className="text-gray-400">Sealed at</dt>
-              <dd className="text-white">{formatDate(data.checkpoint.sealed_at)}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <dt className="text-gray-400">Key ID</dt>
-              <dd className="font-mono text-white">{data.checkpoint.key_id}</dd>
-            </div>
+          <div className="tk-hero">
+            <NumberRoll
+              className="tk-hero__value"
+              value={cp.tree_size}
+              format={(v) => Math.round(v).toLocaleString()}
+            />
+            <span className="tk-hero__unit">entries</span>
+          </div>
+          <div className="tk-comprehend">
+            The bridge&apos;s most recent signed commitment to its audit log, sealed{' '}
+            {formatTime(cp.sealed_at)}.
+          </div>
+
+          <dl className="mt-4 space-y-2.5">
+            <KV k="root hash">
+              <Provenance
+                rows={[
+                  { k: 'root_hash', v: truncateHash(cp.root_hash, 10) },
+                  { k: 'prev_root', v: truncateHash(cp.prev_root_hash, 10) },
+                  { k: 'tree_size', v: cp.tree_size.toLocaleString() },
+                  { k: 'leaf hash', v: 'SHA-256(0x00 ‖ receipt)' },
+                  { k: 'node hash', v: 'SHA-256(0x01 ‖ L ‖ R)' },
+                  { k: 'chaining', v: 'each head commits prev_root_hash' },
+                  { k: 'scheme', v: 'RFC 6962 Merkle' },
+                ]}
+              >
+                <span className="font-mono text-ink-1">{truncateHash(cp.root_hash, 10)}</span>
+              </Provenance>
+              <CopyButton value={cp.root_hash} label="Root hash" />
+            </KV>
+            <KV k="prev root">{truncateHash(cp.prev_root_hash, 10)}</KV>
+            <KV k="key id">{cp.key_id}</KV>
+            <KV k="sealed at">{formatDate(cp.sealed_at)}</KV>
           </dl>
 
           <div className="mt-4 pt-4 border-t border-surface-border">
-            <Button
-              variant="outline"
-              size="sm"
-              icon={<ShieldCheck size={14} />}
-              onClick={runVerify}
-              loading={verifying}
-            >
-              Verify signature in your browser
-            </Button>
+            <button className="tk-btn" onClick={runVerify} disabled={verifying}>
+              <ShieldCheck size={14} /> {verifying ? 'Verifying…' : 'Verify signature in your browser'}
+            </button>
 
             {verdict && (
-              <ul className="mt-3 space-y-1 text-sm">
-                <li className="flex items-baseline gap-2">
-                  {verdict.signatureValid ? (
-                    <Check size={14} className="shrink-0 translate-y-0.5 text-green-400" />
-                  ) : (
-                    <X size={14} className="shrink-0 translate-y-0.5 text-red-400" />
-                  )}
-                  <span className={verdict.signatureValid ? 'text-gray-300' : 'text-red-400'}>
-                    Ed25519 signature valid over the rebuilt tree head
-                  </span>
-                </li>
-                <li className="flex items-baseline gap-2">
-                  {verdict.canonicalMatches ? (
-                    <Check size={14} className="shrink-0 translate-y-0.5 text-green-400" />
-                  ) : (
-                    <X size={14} className="shrink-0 translate-y-0.5 text-red-400" />
-                  )}
-                  <span className={verdict.canonicalMatches ? 'text-gray-300' : 'text-red-400'}>
-                    Server canonical form matches local reconstruction
-                  </span>
-                </li>
+              <ul className="mt-3 space-y-1.5">
+                <CheckRow ok={verdict.signatureValid}>
+                  Ed25519 signature valid over the rebuilt tree head
+                </CheckRow>
+                <CheckRow ok={verdict.canonicalMatches}>
+                  Server canonical form matches local reconstruction
+                </CheckRow>
                 {verdict.pinMatches !== null && (
-                  <li className="flex items-baseline gap-2">
-                    {verdict.pinMatches ? (
-                      <Check size={14} className="shrink-0 translate-y-0.5 text-green-400" />
-                    ) : (
-                      <X size={14} className="shrink-0 translate-y-0.5 text-red-400" />
-                    )}
-                    <span className={verdict.pinMatches ? 'text-gray-300' : 'text-red-400'}>
-                      {verdict.pinMatches
-                        ? 'Signed by your pinned key'
-                        : 'Signed by a DIFFERENT key than your pin'}
-                    </span>
-                  </li>
+                  <CheckRow ok={verdict.pinMatches}>
+                    {verdict.pinMatches
+                      ? 'Signed by your pinned key'
+                      : 'Signed by a DIFFERENT key than your pin'}
+                  </CheckRow>
                 )}
-                {verdict.hasPqSignature && (
-                  <li className="pt-1">
-                    <span
-                      title="This checkpoint also carries an ML-DSA-65 (FIPS 204) post-quantum signature, verified server-side and by offline tools."
-                      className="cursor-help"
-                    >
-                      <Badge variant="info" size="sm">
-                        <Atom size={12} />
-                        Post-quantum protected
-                      </Badge>
-                    </span>
+                <CheckRow tone={verdict.hasPqSignature ? 'watch' : 'stale'} ok={verdict.hasPqSignature}>
+                  {verdict.hasPqSignature
+                    ? 'ML-DSA-65 post-quantum signature attached · verify offline'
+                    : 'No post-quantum signature attached'}
+                </CheckRow>
+                {!verdict.ok && (
+                  <li className="tk-degraded">
+                    <ShieldAlert size={15} /> This checkpoint did not verify. Do not trust it.
                   </li>
                 )}
               </ul>
@@ -296,19 +311,19 @@ function LatestCheckpointCard() {
           </div>
         </>
       )}
-    </Card>
+    </DecisionCard>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Canary
+// Warrant canary
 // ---------------------------------------------------------------------------
 
-function canaryFreshness(issuedAt: string): { variant: 'success' | 'warning' | 'error'; label: string } {
+function canaryFreshness(issuedAt: string): { tone: RowTone; label: string } {
   const ageHours = (Date.now() - new Date(issuedAt).getTime()) / 3_600_000;
-  if (ageHours < 24) return { variant: 'success', label: 'Fresh (< 24h)' };
-  if (ageHours < 72) return { variant: 'warning', label: 'Aging (< 72h)' };
-  return { variant: 'error', label: 'STALE — investigate' };
+  if (ageHours < 24) return { tone: 'ok', label: 'fresh · < 24h' };
+  if (ageHours < 72) return { tone: 'watch', label: 'aging · < 72h' };
+  return { tone: 'critical', label: 'stale · investigate' };
 }
 
 function CanaryCard() {
@@ -328,73 +343,60 @@ function CanaryCard() {
     };
   }, [data]);
 
+  const fresh = data ? canaryFreshness(data.issued_at) : null;
+
   return (
-    <Card>
-      <CardHeader
-        title="Warrant Canary"
-        subtitle="A signed, dated statement that must keep appearing"
-        action={
-          data ? (
-            <Badge variant={canaryFreshness(data.issued_at).variant} dot>
-              {canaryFreshness(data.issued_at).label}
-            </Badge>
-          ) : undefined
-        }
-      />
+    <DecisionCard
+      tone={error || !data ? 'critical' : signatureOk === false ? 'critical' : fresh?.tone}
+      title={<><Eye size={14} /> Warrant canary</>}
+      chip={fresh ? <Chip tone={fresh.tone}>{fresh.label}</Chip> : undefined}
+    >
       {isLoading && !data ? (
         <div className="space-y-3">
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-3/4" />
+          <div className="shimmer h-4 w-full rounded-md" />
+          <div className="shimmer h-4 w-3/4 rounded-md" />
         </div>
       ) : error || !data ? (
-        <p className="text-sm text-red-400">
-          The canary could not be fetched. A missing canary is itself a signal — investigate
-          before using the bridge.
-        </p>
+        <div className="tk-degraded">
+          <ShieldAlert size={15} /> The canary could not be fetched. A missing canary is itself a
+          signal. Investigate before using the bridge.
+        </div>
       ) : (
         <>
-          <blockquote className="text-sm text-gray-300 border-l-2 border-xmr-500/50 pl-3 italic">
+          <blockquote
+            className="text-[13.5px] text-ink-1 italic pl-3 leading-relaxed"
+            style={{ borderLeft: '2px solid var(--tk-live-dim)' }}
+          >
             {data.statement}
           </blockquote>
-          <dl className="mt-4 space-y-2 text-sm">
-            <div className="flex items-center justify-between gap-2">
-              <dt className="text-gray-400">Issued at</dt>
-              <dd className="text-white">{formatDate(data.issued_at)}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <dt className="text-gray-400">Anchored to root</dt>
-              <dd className="font-mono text-white">
-                {truncateHash(data.latest_root_hash, 8)} @ {data.latest_tree_size.toLocaleString()}
-              </dd>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <dt className="text-gray-400">Signature</dt>
-              <dd>
-                {signatureOk === null ? (
-                  <span className="text-gray-500">verifying…</span>
-                ) : signatureOk ? (
-                  <span className="inline-flex items-center gap-1 text-green-400">
-                    <Check size={14} /> verified in your browser
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 text-red-400">
-                    <X size={14} /> INVALID — do not trust
-                  </span>
-                )}
-              </dd>
-            </div>
+          <dl className="mt-4 space-y-2.5">
+            <KV k="issued at">{formatDate(data.issued_at)}</KV>
+            <KV k="anchored root">
+              {truncateHash(data.latest_root_hash, 8)} @ {data.latest_tree_size.toLocaleString()}
+            </KV>
           </dl>
+          <ul className="mt-3 pt-3 border-t border-surface-border">
+            {signatureOk === null ? (
+              <CheckRow tone="stale">verifying signature…</CheckRow>
+            ) : (
+              <CheckRow ok={signatureOk}>
+                {signatureOk
+                  ? 'Ed25519 signature verified in your browser'
+                  : 'Signature INVALID — do not trust'}
+              </CheckRow>
+            )}
+          </ul>
         </>
       )}
-    </Card>
+    </DecisionCard>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Bridge keys
+// Bridge signing keys — the public proof key
 // ---------------------------------------------------------------------------
 
-function KeysCard() {
+function KeysPanel() {
   const { data, error, isLoading } = useApi<ProofKey>('/v1/proof/key');
   const addToast = useUIStore((s) => s.addToast);
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
@@ -417,141 +419,130 @@ function KeysCard() {
   const isPinned = data ? pinnedKey === data.public_key.toLowerCase() : false;
 
   return (
-    <Card>
-      <CardHeader
-        title="Bridge Signing Keys"
-        subtitle="Every receipt and checkpoint must trace back to these"
-      />
+    <Panel
+      title={<><KeyRound size={13} className="inline mr-1.5 -translate-y-px" /> Bridge signing keys</>}
+      right={<span className="tk-label">every receipt & checkpoint traces here</span>}
+    >
       {isLoading && !data ? (
         <div className="space-y-3">
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-full" />
+          <div className="shimmer h-4 w-full rounded-md" />
+          <div className="shimmer h-16 w-full rounded-md" />
         </div>
       ) : error || !data ? (
-        <p className="text-sm text-gray-500">Could not load the bridge keys.</p>
+        <div className="tk-degraded">
+          <ShieldAlert size={15} /> Could not load the bridge keys.
+        </div>
       ) : (
         <div className="space-y-4">
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="tk-label" style={{ color: 'var(--tk-live)' }}>
                 {data.algorithm} · key {data.key_id}
               </span>
               <CopyButton value={data.public_key} label="Ed25519 public key" />
             </div>
-            <p className="font-mono text-xs text-gray-300 break-all bg-surface-elevated rounded-lg p-3 border border-surface-border">
+            <p className="font-mono text-[11.5px] text-ink-2 break-all rounded-md p-3 bg-surface-elevated border border-surface-border">
               {data.public_key}
             </p>
           </div>
 
           {data.pq_public_key && (
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <span className="inline-flex items-center gap-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  <Atom size={12} className="text-blue-400" />
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="tk-label inline-flex items-center gap-1.5">
+                  <Atom size={12} style={{ color: 'var(--tk-watch)' }} />
                   {data.pq_algorithm} · key {data.pq_key_id}
                 </span>
                 <CopyButton value={data.pq_public_key} label="Post-quantum public key" />
               </div>
-              <div className="max-h-24 overflow-y-auto font-mono text-xs text-gray-300 break-all bg-surface-elevated rounded-lg p-3 border border-surface-border">
+              <div className="max-h-24 overflow-y-auto font-mono text-[11.5px] text-ink-2 break-all rounded-md p-3 bg-surface-elevated border border-surface-border">
                 {data.pq_public_key}
               </div>
-              <p className="text-xs text-gray-500 mt-1">
-                ML-DSA-65 signatures are archival: they protect the log against a future
-                quantum adversary and are verified server-side and by offline tools.
+              <p className="text-[11px] text-ink-3 mt-1.5 leading-relaxed">
+                ML-DSA-65 signatures are archival: they protect the log against a future quantum
+                adversary and are verified server-side and by offline tools.
               </p>
             </div>
           )}
 
-          <div className="pt-3 border-t border-surface-border flex items-center justify-between gap-3">
-            <p className="text-xs text-gray-500">
-              Pinning stores the Ed25519 key in your browser; the Verify page then rejects
-              anything signed by a different key.
-            </p>
-            <Button
-              variant={isPinned ? 'secondary' : 'outline'}
-              size="sm"
-              icon={<Pin size={14} />}
+          <div className="pt-3 border-t border-surface-border flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] font-mono text-ink-3">
+              <span>canon <b className="text-ink-1 font-semibold">{data.canonicalization}</b></span>
+              <span>receipt <b className="text-ink-1 font-semibold">{data.receipt_version}</b></span>
+            </div>
+            <button
+              className={`tk-btn ${isPinned ? '' : 'tk-btn--live'}`}
               onClick={pinKey}
               disabled={isPinned}
             >
-              {isPinned ? 'Pinned' : 'Pin this key'}
-            </Button>
+              <Pin size={14} /> {isPinned ? 'Pinned' : 'Pin this key'}
+            </button>
           </div>
         </div>
       )}
-    </Card>
+    </Panel>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Checkpoint history
+// Transparency log — the stream of signed checkpoints
 // ---------------------------------------------------------------------------
 
-function CheckpointHistory() {
+function TransparencyLog() {
   const { data, error, isLoading } = useApi<Checkpoint[]>('/v1/proof/checkpoints?limit=20', {
     refreshInterval: 60000,
   });
 
-  const columns: Column<Checkpoint>[] = [
-    {
-      key: 'id',
-      header: 'ID',
-      width: '80px',
-      render: (cp) => <span className="font-mono text-sm text-gray-400">#{cp.id}</span>,
-    },
-    {
-      key: 'tree_size',
-      header: 'Tree size',
-      align: 'right',
-      render: (cp) => (
-        <span className="font-mono text-sm text-white">{cp.tree_size.toLocaleString()}</span>
-      ),
-    },
-    {
-      key: 'root_hash',
-      header: 'Root hash',
-      render: (cp) => (
-        <span className="inline-flex items-center gap-1 font-mono text-sm text-gray-300">
-          {truncateHash(cp.root_hash, 8)}
-          <CopyButton value={cp.root_hash} label="Root hash" />
-        </span>
-      ),
-    },
-    {
-      key: 'key_id',
-      header: 'Key',
-      render: (cp) => <span className="font-mono text-xs text-gray-500">{cp.key_id}</span>,
-    },
-    {
-      key: 'sealed_at',
-      header: 'Sealed',
-      align: 'right',
-      render: (cp) => <span className="text-sm text-gray-400">{formatTime(cp.sealed_at)}</span>,
-    },
-  ];
-
   return (
-    <Card padding="none">
-      <div className="p-5 pb-0">
-        <CardHeader
-          title="Checkpoint History"
-          subtitle="Each root must extend the previous — a rewritten history cannot"
-        />
-      </div>
+    <Panel
+      title={<><ScrollText size={13} className="inline mr-1.5 -translate-y-px" /> Transparency log</>}
+      right={
+        data ? (
+          <Chip tone="ok">{data.length} checkpoints</Chip>
+        ) : (
+          <span className="tk-label">signed history</span>
+        )
+      }
+    >
       {isLoading && !data ? (
-        <div className="p-5 pt-0">
-          <SkeletonTable rows={5} cols={5} />
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="shimmer h-14 w-full rounded-md" />
+          ))}
         </div>
       ) : error ? (
-        <p className="p-5 pt-0 text-sm text-gray-500">Could not load checkpoint history.</p>
+        /* Fail loud: an unreachable log means the bridge's history is unconfirmable. */
+        <div className="tk-degraded">
+          <ShieldAlert size={15} /> Transparency log unavailable. The bridge&apos;s history cannot be
+          confirmed right now.
+        </div>
+      ) : !data || data.length === 0 ? (
+        <p className="text-[13px] text-ink-3 py-4">No checkpoints sealed yet.</p>
       ) : (
-        <Table
-          data={data || []}
-          columns={columns}
-          emptyMessage="No checkpoints sealed yet"
-        />
+        <div className="tk-stream">
+          {data.map((cp, i) => (
+            <div key={cp.id} className="tk-stream__item" data-level={i === 0 ? 'watch' : undefined}>
+              <div className="tk-stream__head">
+                <span className="font-mono text-ink-2">
+                  #{cp.id} · <b className="text-ink-0">{cp.tree_size.toLocaleString()}</b> entries
+                  {i === 0 && <span className="text-live-500"> · latest</span>}
+                </span>
+                <span className="font-mono text-ink-3">{formatTime(cp.sealed_at)}</span>
+              </div>
+              <div className="tk-stream__text font-mono flex items-center gap-1.5">
+                <span className="text-ink-3">root</span>
+                <span className="text-ink-1">{truncateHash(cp.root_hash, 10)}</span>
+                <CopyButton value={cp.root_hash} label="Root hash" />
+                <span className="text-ink-4 ml-auto">key {cp.key_id}</span>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
-    </Card>
+      <p className="text-[11px] text-ink-4 mt-3 font-mono">
+        each root extends the previous — a rewritten history cannot
+      </p>
+    </Panel>
   );
 }
 
@@ -563,36 +554,38 @@ const explainers = [
   {
     icon: GitCommitHorizontal,
     title: 'What is a checkpoint?',
-    body: 'Every receipt the bridge issues is appended to a Merkle tree. A checkpoint is a signed snapshot of that tree: its size, its root hash, and the previous root. Because each checkpoint commits to the one before it, the bridge cannot quietly rewrite or delete history — any fork would produce two signed checkpoints that contradict each other, and either one is proof of misbehavior.',
+    body: 'Every receipt the bridge issues is appended to a Merkle tree. A checkpoint is a signed snapshot of that tree: its size, its root hash, and the previous root. Because each checkpoint commits to the one before it, the bridge cannot quietly rewrite or delete history. Any fork produces two signed checkpoints that contradict each other, and either one is proof of misbehavior.',
   },
   {
     icon: Eye,
     title: 'What does the sentinel watch?',
-    body: 'The drain-guard sentinel continuously compares hot-wallet outflows, order volume, and receipt issuance against hard limits. If withdrawals outpace what signed receipts can account for — the signature of an operator gone rogue or a compromised server — it halts order intake automatically and records why. The pause state and every trip event are published here, not hidden in an internal dashboard.',
+    body: 'The drain-guard sentinel continuously compares hot-wallet outflows, order volume, and receipt issuance against hard limits. If withdrawals outpace what signed receipts can account for, it halts order intake automatically and records why. The pause state and every trip event are published here, not hidden in an internal dashboard.',
   },
   {
     icon: ReceiptText,
     title: 'Why do receipts matter?',
-    body: 'A bridge that says "trust us" is asking you to hope. A signed receipt is different: it is a cryptographic commitment to the exact terms of your swap — amounts, rate, fee, and transaction hashes — chained to every other receipt for the order. If the bridge later disputes what it owed you, the receipt is portable proof that anyone can verify without trusting this website, using the offline verifier.',
+    body: 'A bridge that says "trust us" is asking you to hope. A signed receipt is different: it is a cryptographic commitment to the exact terms of your swap, chained to every other receipt for the order. If the bridge later disputes what it owed you, the receipt is portable proof anyone can verify without trusting this website.',
   },
 ];
 
 function Explainers() {
   return (
-    <div className="grid md:grid-cols-3 gap-4">
+    <Stagger className="grid md:grid-cols-3 gap-4">
       {explainers.map((item) => {
         const Icon = item.icon;
         return (
-          <Card key={item.title}>
-            <div className="flex items-center gap-2 mb-2">
-              <Icon size={18} className="text-xmr-400" />
-              <h3 className="text-sm font-semibold text-white">{item.title}</h3>
+          <StaggerItem key={item.title}>
+            <div className="tk-panel h-full">
+              <div className="flex items-center gap-2 mb-2.5">
+                <Icon size={17} className="text-live-500" />
+                <h3 className="text-[14px] font-bold text-ink-0">{item.title}</h3>
+              </div>
+              <p className="text-[13px] text-ink-2 leading-relaxed">{item.body}</p>
             </div>
-            <p className="text-sm text-gray-400 leading-relaxed">{item.body}</p>
-          </Card>
+          </StaggerItem>
         );
       })}
-    </div>
+    </Stagger>
   );
 }
 
@@ -601,42 +594,66 @@ function Explainers() {
 // ---------------------------------------------------------------------------
 
 export default function TransparencyPage() {
+  const { data: latest } = useApi<CheckpointEnvelope>('/v1/proof/checkpoint/latest', {
+    refreshInterval: 60000,
+  });
+  const { data: key } = useApi<ProofKey>('/v1/proof/key');
+
+  const cp = latest?.checkpoint;
+  const trustItems = [
+    { label: 'as of', value: cp ? formatTime(cp.sealed_at) : '——', dot: 'var(--tk-ok)' },
+    { label: 'tree', value: cp ? cp.tree_size.toLocaleString() : '——' },
+    { label: 'root', value: cp ? truncateHash(cp.root_hash, 6) : '——' },
+    { label: 'key', value: key ? key.key_id : '——' },
+    { label: 'env', value: API_HOST },
+  ];
+
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 pb-24 md:pb-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white">Transparency</h1>
-        <p className="text-gray-400 mt-2">
-          The bridge&apos;s live proof layer: sentinel status, signed checkpoints, and the
-          warrant canary. Signatures shown as verified are checked in your browser, never
-          taken on faith.
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-24 md:pb-12">
+      {/* Trust strip — auditability always visible */}
+      <TrustStrip items={trustItems} />
+
+      <Reveal className="mt-8 mb-8">
+        <div className="flex items-center gap-2.5 mb-2">
+          <ShieldCheck size={22} className="text-live-500" />
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-ink-0">Transparency</h1>
+        </div>
+        <p className="text-ink-2 max-w-2xl leading-relaxed">
+          The bridge&apos;s live proof layer: sentinel status, signed checkpoints, the public key,
+          and the warrant canary. Every signature shown as verified is checked in your browser,
+          never taken on faith.
         </p>
-      </div>
+      </Reveal>
 
-      <StatusHero />
+      <Reveal>
+        <StatusHero />
+      </Reveal>
 
-      <div className="grid lg:grid-cols-2 gap-6 mt-6">
-        <LatestCheckpointCard />
-        <CanaryCard />
-      </div>
+      <Reveal className="mt-6">
+        <div className="grid lg:grid-cols-2 gap-6">
+          <LatestCheckpointCard />
+          <CanaryCard />
+        </div>
+      </Reveal>
 
-      <div className="mt-6">
-        <KeysCard />
-      </div>
+      <Reveal className="mt-6">
+        <KeysPanel />
+      </Reveal>
 
-      <div className="mt-6">
-        <CheckpointHistory />
-      </div>
+      <Reveal className="mt-6">
+        <TransparencyLog />
+      </Reveal>
 
-      <div className="mt-8">
+      <Reveal className="mt-10">
         <Explainers />
-      </div>
+      </Reveal>
 
-      <div className="mt-8 text-center text-sm text-gray-600">
+      <div className="mt-10 text-center text-[13px] text-ink-3">
         <p>
           Verify any order&apos;s receipts on the{' '}
-          <a href="/verify" className="text-xmr-400 hover:text-xmr-300">
+          <Link href="/verify" className="text-live-500 hover:text-live-400">
             Verify page
-          </a>{' '}
+          </Link>{' '}
           — or download the offline verifier and trust nothing but the math.
         </p>
       </div>

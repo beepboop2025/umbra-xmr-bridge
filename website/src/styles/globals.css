@@ -1,3 +1,5 @@
+/* Tiktó fonts — must precede all other rules or the browser drops the import */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 /* Tiktó — temporal-spatial interface system (tokens + components) */
 @import "./tikto.css";
@@ -5,7 +7,7 @@
 /* ============================================================================
    Tailwind v4 theme, remapped onto Tiktó.
    Surfaces = Tiktó true-black depth ramp; `live` = the one "act here" accent.
-   Every existing bg-surface-*/text-gray-* across the app inherits this.
+   Every existing surface + gray utility across the app inherits this.
    ========================================================================== */
 @theme {
   /* Surfaces — Tiktó void → surface-4 */
@@ -135,3 +137,18 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
+
+/* ============ Apple-grade micro-interactions ============ */
+.tk-card, .tk-panel {
+  transition: transform .45s cubic-bezier(.16,1,.3,1), border-color .3s ease, box-shadow .45s ease;
+  will-change: transform;
+}
+.tk-card:hover { transform: translateY(-3px); box-shadow: 0 18px 44px rgba(0,0,0,.5); border-color: var(--tk-line-3); }
+.tk-btn { transition: transform .25s cubic-bezier(.16,1,.3,1), background .2s ease, box-shadow .25s ease, border-color .2s ease; }
+.tk-btn:hover { transform: translateY(-1px); }
+.tk-btn--live:hover { box-shadow: 0 0 0 3px var(--tk-live-glow), 0 10px 26px var(--tk-live-glow); }
+.tk-chip { transition: transform .2s ease, box-shadow .2s ease; }
+.tk-trust { transition: border-color .3s ease; }
+a, button { -webkit-tap-highlight-color: transparent; }
+/* smoother anchor scrolling fallback when Lenis is off (reduced motion) */
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }

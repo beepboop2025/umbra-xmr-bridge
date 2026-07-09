@@ -1,202 +1,244 @@
 'use client';
 
-import { ArrowRight, Copy, Check, ExternalLink, Clock, Shield } from 'lucide-react';
 import { useState } from 'react';
-import { Card } from '@/components/ui/Card';
-import { StatusBadge } from '@/components/ui/Badge';
+import Link from 'next/link';
+import { ArrowRight, ExternalLink, Clock, Shield, ShieldCheck, Copy, Check } from 'lucide-react';
 import { CHAINS } from '@/lib/chains';
 import { ChainIcon } from '@/components/bridge/ChainSelector';
-import { formatDate, truncateAddress, truncateHash, copyToClipboard, getExplorerUrl } from '@/lib/utils';
+import { DecisionCard, Hero, Chip, Provenance, Panel, TrustStrip } from '@/components/tikto/primitives';
+import { Reveal } from '@/components/tikto/motion';
+import { formatDate, truncateHash, getExplorerUrl, copyToClipboard } from '@/lib/utils';
+import { statusMeta } from './TxList';
 import type { OrderDetail } from '@/lib/api-client';
+
+const fmt = (n: number, d = 8) => (Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: d });
 
 interface TxDetailProps {
   order: OrderDetail;
 }
 
 export function TxDetail({ order }: TxDetailProps) {
-  const [copiedField, setCopiedField] = useState<string | null>(null);
-  const srcChain = CHAINS[order.source_chain];
-  const dstChain = CHAINS[order.dest_chain];
+  const [copied, setCopied] = useState<string | null>(null);
+  const src = CHAINS[order.source_chain];
+  const dst = CHAINS[order.dest_chain];
+  const meta = statusMeta(order.status);
+  const srcSym = src?.symbol ?? order.source_chain;
+  const dstSym = dst?.symbol ?? order.dest_chain;
 
-  const handleCopy = async (text: string, field: string) => {
+  const copy = async (text: string, field: string) => {
     await copyToClipboard(text);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
+    setCopied(field);
+    setTimeout(() => setCopied(null), 1800);
   };
 
+  const hasSettlement = Boolean(order.source_tx || order.dest_tx);
+
   return (
-    <div className="space-y-6">
-      {/* Overview Card */}
-      <Card>
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <p className="text-sm text-gray-400">Transaction</p>
-            <p className="text-xl font-bold font-mono text-white">{order.order_id}</p>
+    <div className="space-y-5">
+      {/* Hero decision card — one screen, one hero number */}
+      <Reveal>
+        <DecisionCard
+          tone={meta.tone}
+          title={
+            <>
+              <span className="text-ink-4">order</span>
+              <span className="max-w-[220px] truncate font-mono text-ink-1">{order.order_id}</span>
+            </>
+          }
+          chip={<Chip tone={meta.tone}>{meta.label}</Chip>}
+        >
+          <Hero value={fmt(order.amount)} unit={srcSym} />
+
+          {/* route — source -> dest */}
+          <div className="tk-project" style={{ marginTop: 14 }}>
+            <span className="inline-flex items-center gap-1.5">
+              {src && <ChainIcon chain={src} size={18} />}
+              <b className="text-ink-1">{src?.name ?? order.source_chain}</b>
+            </span>
+            <ArrowRight size={13} className="text-ink-4" />
+            <span className="inline-flex items-center gap-1.5">
+              {dst && <ChainIcon chain={dst} size={18} />}
+              <b className="text-ink-1">{dst?.name ?? order.dest_chain}</b>
+            </span>
           </div>
-          <StatusBadge status={order.status} size="md" />
-        </div>
 
-        {/* From -> To */}
-        <div className="flex items-center gap-4 p-4 rounded-xl bg-surface-elevated">
-          <div className="flex-1 text-center">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              {srcChain && <ChainIcon chain={srcChain} size={28} />}
-              <span className="text-sm font-medium text-gray-300">{srcChain?.name}</span>
-            </div>
-            <p className="text-xl font-bold text-white font-mono">
-              {(Number(order.amount) || 0).toFixed(6)} {srcChain?.symbol}
-            </p>
+          {/* received — pull the number to see how it was derived */}
+          <div className="tk-comprehend" style={{ marginTop: 12 }}>
+            Receives{' '}
+            <span className="font-mono text-live-500">
+              <Provenance
+                rows={[
+                  { k: 'exchange rate', v: `1 ${srcSym} = ${fmt(order.rate)} ${dstSym}` },
+                  { k: 'bridge fee', v: `${order.fee_percent}%` },
+                  { k: 'network fee', v: `${fmt(order.network_fee)} ${dstSym}` },
+                  { k: 'you receive', v: `${fmt(order.receive_amount)} ${dstSym}`, weight: 1 },
+                ]}
+              >
+                {fmt(order.receive_amount)} {dstSym}
+              </Provenance>
+            </span>
           </div>
 
-          <ArrowRight size={24} className="text-xmr-400 shrink-0" />
+          {/* forcing function: prove it, don't just trust it */}
+          <Link
+            href="/verify"
+            className="tk-action"
+            style={{ borderStyle: 'solid', borderColor: 'var(--tk-live)', color: 'var(--tk-live)' }}
+          >
+            <ShieldCheck size={15} /> Verify this receipt — signed proof, checked offline
+          </Link>
+        </DecisionCard>
+      </Reveal>
 
-          <div className="flex-1 text-center">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              {dstChain && <ChainIcon chain={dstChain} size={28} />}
-              <span className="text-sm font-medium text-gray-300">{dstChain?.name}</span>
-            </div>
-            <p className="text-xl font-bold text-green-400 font-mono">
-              {(Number(order.receive_amount) || 0).toFixed(6)} {dstChain?.symbol}
-            </p>
+      {/* Settlement — timestamps + on-chain hashes (never addresses) */}
+      <Reveal delay={0.05}>
+        <Panel title="Settlement">
+          <div className="flex flex-col">
+            <MetaRow k="Created" v={formatDate(order.created_at)} />
+            {order.completed_at && <MetaRow k="Completed" v={formatDate(order.completed_at)} />}
+            {order.source_tx && (
+              <TxHashRow
+                label={`${srcSym} deposit`}
+                chain={order.source_chain}
+                hash={order.source_tx}
+                copied={copied}
+                onCopy={copy}
+              />
+            )}
+            {order.dest_tx && (
+              <TxHashRow
+                label={`${dstSym} payout`}
+                chain={order.dest_chain}
+                hash={order.dest_tx}
+                copied={copied}
+                onCopy={copy}
+              />
+            )}
+            {!hasSettlement && (
+              <p className="py-2 text-xs text-ink-4">
+                On-chain transaction hashes appear here once the swap settles.
+              </p>
+            )}
           </div>
-        </div>
-      </Card>
+        </Panel>
+      </Reveal>
 
-      {/* Details Card */}
-      <Card>
-        <h3 className="text-lg font-semibold text-white mb-4">Details</h3>
-        <div className="space-y-3">
-          <DetailRow label="Order ID" value={order.order_id} copyable onCopy={handleCopy} copiedField={copiedField} />
-          <DetailRow label="Created" value={formatDate(order.created_at)} />
-          {order.completed_at && <DetailRow label="Completed" value={formatDate(order.completed_at)} />}
-          <DetailRow label="Exchange Rate" value={`1 ${srcChain?.symbol} = ${(Number(order.rate) || 0).toFixed(8)} ${dstChain?.symbol}`} />
-          <DetailRow label="Fee" value={`${order.fee_percent}% + ${(Number(order.network_fee) || 0).toFixed(6)} ${dstChain?.symbol}`} />
-          <DetailRow label="Destination" value={order.dest_address} mono copyable onCopy={handleCopy} copiedField={copiedField} />
-          {order.deposit_address && (
-            <DetailRow label="Deposit Address" value={order.deposit_address} mono copyable onCopy={handleCopy} copiedField={copiedField} />
-          )}
-          {order.source_tx && (
-            <DetailRow
-              label={`${srcChain?.symbol} TX`}
-              value={truncateHash(order.source_tx, 12)}
-              href={getExplorerUrl(order.source_chain, order.source_tx)}
-              mono
-              copyable
-              copyValue={order.source_tx}
-              onCopy={handleCopy}
-              copiedField={copiedField}
-            />
-          )}
-          {order.dest_tx && (
-            <DetailRow
-              label={`${dstChain?.symbol} TX`}
-              value={truncateHash(order.dest_tx, 12)}
-              href={getExplorerUrl(order.dest_chain, order.dest_tx)}
-              mono
-              copyable
-              copyValue={order.dest_tx}
-              onCopy={handleCopy}
-              copiedField={copiedField}
-            />
-          )}
-        </div>
-      </Card>
+      {/* Trust strip — auditability always visible */}
+      <Reveal delay={0.1}>
+        <TrustStrip
+          items={[
+            { label: meta.label.toLowerCase(), dot: `var(--tk-${meta.tone})` },
+            { label: 'custody', value: 'non-custodial' },
+            { label: 'receipts', value: 'ed25519 + ml-dsa' },
+            {
+              label: (
+                <Link href="/verify" style={{ color: 'var(--tk-live)' }}>
+                  verify &rarr;
+                </Link>
+              ),
+            },
+          ]}
+        />
+      </Reveal>
 
       {/* Timeline */}
       {order.timeline && order.timeline.length > 0 && (
-        <Card>
-          <h3 className="text-lg font-semibold text-white mb-4">Timeline</h3>
-          <div className="space-y-4">
-            {order.timeline.map((event, index) => (
-              <div key={index} className="flex gap-4">
-                <div className="flex flex-col items-center">
-                  <div className="w-3 h-3 rounded-full bg-xmr-500 mt-1" />
-                  {index < order.timeline.length - 1 && (
-                    <div className="w-px flex-1 bg-surface-border mt-1" />
-                  )}
-                </div>
-                <div className="flex-1 pb-4">
-                  <p className="text-sm font-medium text-white">{event.event}</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    <Clock size={10} className="inline mr-1" />
-                    {formatDate(event.timestamp)}
-                  </p>
-                  {event.tx_hash && (
-                    <p className="text-xs font-mono text-gray-400 mt-1">
-                      TX: {truncateHash(event.tx_hash)}
+        <Reveal delay={0.12}>
+          <Panel title="Timeline">
+            <div className="flex flex-col">
+              {order.timeline.map((event, i) => (
+                <div key={i} className="flex gap-3">
+                  <div className="flex flex-col items-center">
+                    <div
+                      className="mt-1.5 h-2.5 w-2.5 rounded-full"
+                      style={{ background: 'var(--tk-live)', boxShadow: '0 0 8px var(--tk-live-glow)' }}
+                    />
+                    {i < order.timeline.length - 1 && (
+                      <div className="mt-1 w-px flex-1" style={{ background: 'var(--tk-line-2)' }} />
+                    )}
+                  </div>
+                  <div className="flex-1 pb-4">
+                    <p className="text-[13px] font-medium capitalize text-ink-1">
+                      {String(event.event).replace(/_/g, ' ')}
                     </p>
-                  )}
+                    <p className="mt-0.5 flex items-center gap-1 font-mono text-[11px] text-ink-3">
+                      <Clock size={10} /> {formatDate(event.timestamp)}
+                    </p>
+                    {event.tx_hash && (
+                      <p className="mt-1 truncate font-mono text-[11px] text-ink-4">
+                        tx {truncateHash(event.tx_hash)}
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </Card>
+              ))}
+            </div>
+          </Panel>
+        </Reveal>
       )}
 
-      {/* Privacy Notice */}
-      <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/20 flex gap-3">
-        <Shield size={20} className="text-green-400 shrink-0" />
-        <div>
-          <p className="text-sm font-medium text-green-400">Privacy Protected</p>
-          <p className="text-xs text-green-400/70 mt-1">
-            This transaction was processed through a non-custodial bridge with no KYC requirements.
-            Monero&apos;s ring signatures ensure sender privacy.
-          </p>
+      {/* Privacy notice */}
+      <Reveal delay={0.15}>
+        <div className="tk-card tk-card--ok">
+          <div className="flex gap-3">
+            <Shield size={20} className="shrink-0 text-ok" />
+            <div>
+              <p className="text-sm font-semibold text-ink-0">Privacy preserved</p>
+              <p className="mt-1 text-xs leading-relaxed text-ink-2">
+                Processed through a non-custodial bridge with no KYC. Monero&apos;s ring signatures conceal
+                the sender, and this public record never exposes deposit or destination addresses.
+              </p>
+            </div>
+          </div>
         </div>
-      </div>
+      </Reveal>
     </div>
   );
 }
 
-function DetailRow({
+function MetaRow({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-surface-border/60 py-2.5 last:border-0">
+      <span className="text-[11px] uppercase tracking-wider text-ink-4">{k}</span>
+      <span className="font-mono text-[13px] text-ink-1">{v}</span>
+    </div>
+  );
+}
+
+function TxHashRow({
   label,
-  value,
-  mono = false,
-  copyable = false,
-  copyValue,
-  href,
+  chain,
+  hash,
+  copied,
   onCopy,
-  copiedField,
 }: {
   label: string;
-  value: string;
-  mono?: boolean;
-  copyable?: boolean;
-  copyValue?: string;
-  href?: string;
-  onCopy?: (text: string, field: string) => void;
-  copiedField?: string | null;
+  chain: string;
+  hash: string;
+  copied: string | null;
+  onCopy: (text: string, field: string) => void;
 }) {
-  const textToCopy = copyValue || value;
-  const isCopied = copiedField === label;
-
+  const isCopied = copied === label;
   return (
-    <div className="flex items-start justify-between py-2 border-b border-surface-border/50 last:border-0">
-      <span className="text-sm text-gray-500 shrink-0">{label}</span>
-      <div className="flex items-center gap-2 ml-4">
-        {href ? (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`text-sm text-xmr-400 hover:text-xmr-300 transition-colors ${mono ? 'font-mono' : ''}`}
-          >
-            {value}
-            <ExternalLink size={10} className="inline ml-1" />
-          </a>
-        ) : (
-          <span className={`text-sm text-gray-200 break-all text-right ${mono ? 'font-mono text-xs' : ''}`}>
-            {value}
-          </span>
-        )}
-        {copyable && onCopy && (
-          <button
-            onClick={() => onCopy(textToCopy, label)}
-            className="shrink-0 p-1 rounded text-gray-600 hover:text-gray-400 transition-colors"
-          >
-            {isCopied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
-          </button>
-        )}
+    <div className="flex items-center justify-between gap-4 border-b border-surface-border/60 py-2.5 last:border-0">
+      <span className="shrink-0 text-[11px] uppercase tracking-wider text-ink-4">{label}</span>
+      <div className="flex min-w-0 items-center gap-2">
+        <a
+          href={getExplorerUrl(chain, hash)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="truncate font-mono text-[13px] text-live-500 transition-colors hover:text-live-300"
+        >
+          {truncateHash(hash, 10)}
+          <ExternalLink size={11} className="ml-1 inline -translate-y-px" />
+        </a>
+        <button
+          onClick={() => onCopy(hash, label)}
+          className="shrink-0 rounded p-1 text-ink-4 transition-colors hover:text-ink-2"
+          aria-label={`Copy ${label} hash`}
+        >
+          {isCopied ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
+        </button>
       </div>
     </div>
   );
