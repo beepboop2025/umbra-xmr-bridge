@@ -1,14 +1,16 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, JetBrains_Mono } from 'next/font/google';
+import { Outfit, JetBrains_Mono } from 'next/font/google';
 import '@/styles/globals.css';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { MobileNav } from '@/components/layout/MobileNav';
 import { ToastContainer } from '@/components/ui/Toast';
 
-const inter = Inter({
+// Tiktó display type
+const outfit = Outfit({
   subsets: ['latin'],
-  variable: '--font-inter',
+  variable: '--font-outfit',
+  weight: ['400', '500', '600', '700', '800'],
   display: 'swap',
 });
 
@@ -20,8 +22,8 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: 'XMRBridge - Private Multi-Chain Bridge',
-    template: '%s | XMRBridge',
+    default: 'Umbra — Private Cross-Chain Bridge',
+    template: '%s · Umbra',
   },
   description:
     'Bridge XMR to any chain privately. Non-custodial, no KYC. Support for BTC, ETH, TON, SOL, Arbitrum, Base, USDC, and USDT.',
@@ -39,16 +41,16 @@ export const metadata: Metadata = {
     'Solana',
     'cross-chain',
   ],
-  authors: [{ name: 'XMRBridge' }],
+  authors: [{ name: 'Umbra' }],
   openGraph: {
-    title: 'XMRBridge - Private Multi-Chain Bridge',
+    title: 'Umbra — Private Cross-Chain Bridge',
     description: 'Bridge XMR to any chain privately. Non-custodial, no KYC.',
     type: 'website',
-    siteName: 'XMRBridge',
+    siteName: 'Umbra',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'XMRBridge - Private Multi-Chain Bridge',
+    title: 'Umbra — Private Cross-Chain Bridge',
     description: 'Bridge XMR to any chain privately. Non-custodial, no KYC.',
   },
   robots: 'index, follow',
@@ -57,7 +59,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#050810',
+  themeColor: '#000000',
 };
 
 export default function RootLayout({
@@ -66,8 +68,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`dark ${inter.variable} ${jetbrainsMono.variable}`}>
-      <body className="min-h-screen bg-surface-deep text-gray-100 font-sans antialiased">
+    <html lang="en" className={`dark ${outfit.variable} ${jetbrainsMono.variable}`}>
+      <body className="tk min-h-screen bg-surface-deep text-ink-1 font-sans antialiased">
         <div className="flex flex-col min-h-screen">
           <Header />
           <main className="flex-1">{children}</main>

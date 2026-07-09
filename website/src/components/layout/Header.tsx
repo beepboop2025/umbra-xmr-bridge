@@ -27,18 +27,11 @@ export function Header() {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-3 group">
-            <div className="relative w-9 h-9">
-              <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-xmr-500 to-xmr-700 opacity-80 group-hover:opacity-100 transition-opacity" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="currentColor">
-                  <path d="M5 17V8l7 7 7-7v9h3V5l-1-1L12 13 3 4 2 5v12h3z" />
-                </svg>
-              </div>
+            <div className="relative w-9 h-9 rounded-[10px] flex items-center justify-center"
+                 style={{ background: 'var(--tk-surface-3)', border: '1px solid var(--tk-line-3)' }}>
+              <span className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--tk-live)', boxShadow: '0 0 10px var(--tk-live-glow)' }} />
             </div>
-            <div className="hidden sm:block">
-              <span className="text-lg font-bold text-white">XMR</span>
-              <span className="text-lg font-bold text-xmr-400">Bridge</span>
-            </div>
+            <span className="hidden sm:block text-lg font-extrabold tracking-[0.18em] text-ink-0">UMBRA</span>
           </Link>
 
           {/* Desktop Nav */}
@@ -54,7 +47,7 @@ export function Header() {
                   className={cn(
                     'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
                     isActive
-                      ? 'text-xmr-400 bg-xmr-500/10'
+                      ? 'text-live-500 bg-live-500/10'
                       : 'text-gray-400 hover:text-white hover:bg-surface-elevated'
                   )}
                 >
@@ -102,7 +95,7 @@ export function Header() {
                   className={cn(
                     'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
                     isActive
-                      ? 'text-xmr-400 bg-xmr-500/10'
+                      ? 'text-live-500 bg-live-500/10'
                       : 'text-gray-400 hover:text-white hover:bg-surface-elevated'
                   )}
                 >

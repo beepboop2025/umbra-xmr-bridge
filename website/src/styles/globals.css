@@ -1,178 +1,137 @@
 @import "tailwindcss";
+/* Tiktó — temporal-spatial interface system (tokens + components) */
+@import "./tikto.css";
 
+/* ============================================================================
+   Tailwind v4 theme, remapped onto Tiktó.
+   Surfaces = Tiktó true-black depth ramp; `live` = the one "act here" accent.
+   Every existing bg-surface-*/text-gray-* across the app inherits this.
+   ========================================================================== */
 @theme {
-  --color-xmr-50: #fff3e0;
-  --color-xmr-100: #ffe0b2;
-  --color-xmr-200: #ffcc80;
-  --color-xmr-300: #ffb74d;
+  /* Surfaces — Tiktó void → surface-4 */
+  --color-surface-deep:     #000000;
+  --color-surface-base:     #080808;
+  --color-surface-card:     #0e0e0e;
+  --color-surface-elevated: #151515;
+  --color-surface-border:   #272727;
+  --color-surface-hover:    #262626;
+
+  /* The live accent (Tiktó cyan) — the single "live / act" colour */
+  --color-live-300: #5fe6ee;
+  --color-live-400: #22dce6;
+  --color-live-500: #06d6e0;
+  --color-live-600: #0891a2;
+  --color-live-700: #0a6f7c;
+
+  /* Chain-identity colours (data, used sparingly — not the UI accent) */
   --color-xmr-400: #ffa726;
-  --color-xmr-500: #FF6600;
+  --color-xmr-500: #ff6600;
   --color-xmr-600: #e65c00;
-  --color-xmr-700: #cc5200;
-  --color-xmr-800: #b34700;
-  --color-xmr-900: #993d00;
-
-  --color-ton-50: #e0f4fd;
-  --color-ton-100: #b3e4fa;
-  --color-ton-200: #80d3f7;
-  --color-ton-300: #4dc2f4;
   --color-ton-400: #26b5f1;
-  --color-ton-500: #0098EA;
-  --color-ton-600: #0088d4;
-  --color-ton-700: #0077bb;
-  --color-ton-800: #0066a3;
-  --color-ton-900: #004d7a;
+  --color-ton-500: #0098ea;
 
-  --color-surface-deep: #050810;
-  --color-surface-base: #0a0e1a;
-  --color-surface-card: #0f1424;
-  --color-surface-elevated: #151b2e;
-  --color-surface-border: #1e2640;
-  --color-surface-hover: #232d4a;
+  /* Semantic status (Tiktó) */
+  --color-ok:       #19c393;
+  --color-warning:  #ffb020;
+  --color-watch:    #4aa3ff;
+  --color-critical: #ff5b52;
+  --color-stale:    #8593a8;
 
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  /* Text ramp (Tiktó) — expose a few as utilities */
+  --color-ink-0: #ffffff;
+  --color-ink-1: #e2e8f0;
+  --color-ink-2: #94a3b8;
+  --color-ink-3: #64748b;
+  --color-ink-4: #475569;
+
+  --font-sans: var(--font-outfit), 'Outfit', system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), 'JetBrains Mono', ui-monospace, monospace;
 }
 
+/* Make Tiktó's own font tokens use the Next-loaded families */
 :root {
-  --bg-deep: #050810;
-  --bg-base: #0a0e1a;
-  --bg-card: #0f1424;
-  --bg-elevated: #151b2e;
-  --border-color: #1e2640;
-  --hover-color: #232d4a;
-  --xmr-orange: #FF6600;
-  --ton-blue: #0098EA;
-  --text-primary: #f0f2f5;
-  --text-secondary: #8892a8;
-  --text-muted: #505a70;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --error: #ef4444;
+  --tk-font-display: var(--font-outfit), 'Outfit', system-ui, sans-serif;
+  --tk-font-mono: var(--font-jetbrains), 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Legacy vars used by a few utilities — re-skinned to Tiktó */
+  --bg-deep: #000000;
+  --bg-base: #080808;
+  --bg-card: #0e0e0e;
+  --bg-elevated: #151515;
+  --border-color: #272727;
+  --hover-color: #262626;
+  --xmr-orange: #ff6600;
+  --ton-blue: #0098ea;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --success: #19c393;
+  --warning: #ffb020;
+  --error: #ff5b52;
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
-html {
-  color-scheme: dark;
-  scroll-behavior: smooth;
-}
+html { color-scheme: dark; scroll-behavior: smooth; }
 
 body {
-  background: var(--bg-deep);
-  color: var(--text-primary);
-  font-family: var(--font-sans);
+  background: var(--tk-void);
+  color: var(--tk-text-1);
+  font-family: var(--tk-font-display);
+  font-feature-settings: "ss01";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
 }
 
-/* Glass card effect */
+/* Every numeric string in the app is tabular — no jitter on update */
+.tabnum, .font-mono { font-variant-numeric: tabular-nums lining-nums; }
+
+/* Glass → flat Tiktó card surface (kept so existing .glass usages don't break) */
 .glass {
-  background: rgba(15, 20, 36, 0.7);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(30, 38, 64, 0.5);
+  background: linear-gradient(180deg, var(--tk-surface-1), var(--tk-void));
+  border: 1px solid var(--tk-line-2);
 }
+.glass-hover:hover { background: var(--tk-surface-2); border-color: var(--tk-line-3); }
 
-.glass-hover:hover {
-  background: rgba(21, 27, 46, 0.8);
-  border-color: rgba(30, 38, 64, 0.8);
-}
-
-/* Gradient borders */
-.gradient-border {
-  position: relative;
-  background: var(--bg-card);
-  border-radius: 12px;
-}
-
+.gradient-border { position: relative; background: var(--tk-surface-1); border-radius: var(--tk-radius-lg); }
 .gradient-border::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 12px;
-  padding: 1px;
-  background: linear-gradient(135deg, rgba(255, 102, 0, 0.3), rgba(0, 152, 234, 0.3));
+  content: ''; position: absolute; inset: 0; border-radius: var(--tk-radius-lg); padding: 1px;
+  background: linear-gradient(135deg, var(--tk-live-glow), transparent);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
+  -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none;
 }
 
-/* Glow effects */
-.glow-xmr {
-  box-shadow: 0 0 20px rgba(255, 102, 0, 0.15), 0 0 40px rgba(255, 102, 0, 0.05);
-}
+.glow-xmr { box-shadow: 0 0 20px rgba(255,102,0,0.14), 0 0 40px rgba(255,102,0,0.05); }
+.glow-live { box-shadow: 0 0 0 1px var(--tk-live-glow), 0 0 28px var(--tk-live-glow); }
 
-.glow-ton {
-  box-shadow: 0 0 20px rgba(0, 152, 234, 0.15), 0 0 40px rgba(0, 152, 234, 0.05);
-}
+/* Scrollbar — true black */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--tk-void); }
+::-webkit-scrollbar-thumb { background: var(--tk-line-2); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--tk-line-3); }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
+@keyframes countUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.animate-count { animation: countUp 0.4s ease-out; }
 
-::-webkit-scrollbar-track {
-  background: var(--bg-base);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--hover-color);
-}
-
-/* Number animations */
-@keyframes countUp {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.animate-count {
-  animation: countUp 0.4s ease-out;
-}
-
-/* Shimmer loading */
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
 .shimmer {
-  background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-elevated) 50%, var(--bg-card) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
+  background: linear-gradient(90deg, var(--tk-surface-2) 25%, var(--tk-surface-3) 50%, var(--tk-surface-2) 75%);
+  background-size: 200% 100%; animation: shimmer 1.5s ease-in-out infinite;
 }
 
-/* Focus styles */
-input:focus,
-select:focus,
-textarea:focus,
-button:focus-visible {
-  outline: 2px solid var(--xmr-orange);
-  outline-offset: 2px;
+/* Focus + selection — the live accent */
+input:focus, select:focus, textarea:focus, button:focus-visible {
+  outline: 2px solid var(--tk-live); outline-offset: 2px;
+}
+::selection { background: var(--tk-live-glow); color: #fff; }
+
+input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 30px var(--tk-surface-2) inset !important;
+  -webkit-text-fill-color: var(--tk-text-1) !important;
+  caret-color: var(--tk-text-1);
 }
 
-/* Selection */
-::selection {
-  background: rgba(255, 102, 0, 0.3);
-  color: #fff;
-}
-
-/* Remove autofill background */
-input:-webkit-autofill,
-input:-webkit-autofill:hover,
-input:-webkit-autofill:focus {
-  -webkit-box-shadow: 0 0 0 30px var(--bg-card) inset !important;
-  -webkit-text-fill-color: var(--text-primary) !important;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }

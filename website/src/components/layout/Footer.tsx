@@ -39,12 +39,12 @@ export function Footer() {
           {/* Brand */}
           <div className="col-span-2">
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-xmr-500 to-xmr-700 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-[9px] flex items-center justify-center" style={{ background: 'var(--tk-surface-3)', border: '1px solid var(--tk-line-3)' }}>
                 <svg viewBox="0 0 24 24" className="w-4 h-4 text-white" fill="currentColor">
                   <path d="M5 17V8l7 7 7-7v9h3V5l-1-1L12 13 3 4 2 5v12h3z" />
                 </svg>
               </div>
-              <span className="text-lg font-bold text-white">XMR<span className="text-xmr-400">Bridge</span></span>
+              <span className="text-lg font-extrabold tracking-[0.16em] text-ink-0">UMBRA</span>
             </div>
             <p className="text-sm text-gray-400 max-w-xs mb-4">
               Private, non-custodial multi-chain bridge for Monero. No KYC, no registration, just swap.
@@ -77,7 +77,7 @@ export function Footer() {
                   <li key={link.label}>
                     <Link
                       href={link.href}
-                      className="text-sm text-gray-400 hover:text-xmr-400 transition-colors"
+                      className="text-sm text-gray-400 hover:text-live-500 transition-colors"
                     >
                       {link.label}
                     </Link>
@@ -90,14 +90,14 @@ export function Footer() {
 
         <div className="mt-10 pt-6 border-t border-surface-border flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-gray-500">
-            &copy; {new Date().getFullYear()} XMRBridge. All rights reserved.
+            &copy; {new Date().getFullYear()} Umbra. All rights reserved.
           </p>
           <div className="flex items-center gap-4">
             <a
               href="https://getmonero.org"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-xmr-400 transition-colors"
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-live-500 transition-colors"
             >
               Powered by Monero
               <ExternalLink size={10} />
