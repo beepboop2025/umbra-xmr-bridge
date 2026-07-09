@@ -176,17 +176,17 @@ services:
       - "18082"
     volumes:
       - monero_wallet:/wallet
+    # The image's entrypoint already injects --rpc-bind-ip=0.0.0.0,
+    # --confirm-external-bind and --non-interactive; passing them again errors
+    # ("cannot be specified more than once"), so only the rest goes here.
     command: >-
       --stagenet
       --daemon-address ${MONERO_NODE:-node.sethforprivacy.com:38089}
       --untrusted-daemon
       --wallet-file /wallet/umbra-hot
       --password ${MONERO_WALLET_PASSWORD:?set MONERO_WALLET_PASSWORD}
-      --rpc-bind-ip 0.0.0.0
       --rpc-bind-port 18082
-      --confirm-external-bind
       --disable-rpc-login
-      --non-interactive
     deploy:
       resources:
         limits:
