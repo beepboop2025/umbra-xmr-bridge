@@ -58,10 +58,17 @@ if command -v dig >/dev/null 2>&1; then
 	fi
 fi
 
-# --- ports 80/443 free on the host ---
+# --- ports 80/443 free on the host, OR already held by our own stack ---
+# On a redeploy our Caddy legitimately holds 80/443; compose recreates it. Only
+# a *foreign* listener is a real conflict.
+stack_caddy="$(docker compose -f compose.prod.yml --env-file "$ENV_FILE" ps -q caddy 2>/dev/null || true)"
 for p in 80 443; do
-	if command -v ss >/dev/null 2>&1 && ss -ltn "( sport = :$p )" 2>/dev/null | grep -q ":$p"; then
-		red "PORT IN USE: :$p is already bound (Caddy needs it). Stop the other service first."; fail=1
+	if command -v ss >/dev/null 2>&1 && ss -ltnH "( sport = :$p )" 2>/dev/null | grep -q ":$p"; then
+		if [[ -n "$stack_caddy" ]]; then
+			yellow "note: :$p held by the running Umbra stack — compose will recreate it"
+		else
+			red "PORT IN USE: :$p is bound by another service. Stop it first."; fail=1
+		fi
 	fi
 done
 
