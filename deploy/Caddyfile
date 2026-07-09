@@ -1,0 +1,84 @@
+# Umbra production edge — terminates TLS for the bridge and routes to the
+# internal services. Caddy obtains and renews Let's Encrypt certificates
+# automatically for {$UMBRA_DOMAIN} and www.{$UMBRA_DOMAIN}.
+#
+# Routing contract (why each block exists):
+#   /v1/proof/*   public accountability endpoints (anyone may audit the bridge)
+#   /health,/ready health probes
+#   /ws, /v1/ws   websockets (live rates + order updates)
+#   /api/*        the website calls /api/*, but the backend serves /v1/* — so we
+#                 rewrite the prefix here. This is the single source of truth for
+#                 that mapping; do not also rewrite in the app.
+#   /v1/admin, /metrics  operator-only: refused at the edge, reachable only via
+#                 an SSH tunnel to the api container (see deploy/README.md).
+#   /app          Telegram Mini App
+#   everything else  the Next.js website
+
+{
+	email {$ACME_EMAIL}
+	# Uncomment to test against Let's Encrypt staging (avoids rate limits):
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$UMBRA_DOMAIN}, www.{$UMBRA_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' wss: https:; font-src 'self' data:;"
+		-Server
+	}
+
+	# --- Operator-only surfaces: never exposed publicly ---
+	@admin path /v1/admin/* /api/admin/*
+	handle @admin {
+		respond "Admin API is not publicly accessible." 403
+	}
+	handle /metrics {
+		respond 403
+	}
+
+	# --- Public proof / accountability endpoints ---
+	handle /v1/proof/* {
+		reverse_proxy api:8000
+	}
+
+	# --- Health probes ---
+	handle /health {
+		reverse_proxy api:8000
+	}
+	handle /ready {
+		reverse_proxy api:8000
+	}
+
+	# --- WebSockets (Caddy negotiates the Upgrade automatically) ---
+	handle /ws/* {
+		reverse_proxy api:8000
+	}
+	handle /v1/ws/* {
+		reverse_proxy api:8000
+	}
+
+	# --- REST API: frontend /api/* -> backend /v1/* ---
+	handle /api/* {
+		uri replace /api/ /v1/ 1
+		reverse_proxy api:8000
+	}
+
+	# --- Telegram Mini App at /app ---
+	handle /app {
+		redir /app/ 308
+	}
+	handle_path /app/* {
+		reverse_proxy miniapp:80
+	}
+
+	# --- Everything else: the Next.js website ---
+	handle {
+		reverse_proxy website:3000
+	}
+}

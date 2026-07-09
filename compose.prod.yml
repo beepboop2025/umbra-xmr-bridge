@@ -1,0 +1,206 @@
+# Umbra — production topology for a single dedicated host (e.g. umbra-xmr.com).
+#
+# Differs from docker-compose.yml (local dev) in the ways that matter for a
+# public, money-moving deployment:
+#   * Caddy is the ONLY service with published ports (80/443). Postgres, Redis,
+#     the API, risk engine, website and mini app are reachable only on the
+#     internal Docker network — never bound to the host, never internet-facing.
+#   * Caddy terminates TLS with automatic Let's Encrypt certificates.
+#   * Redis uses noeviction + appendonly so the sentinel's pause flag can never
+#     be evicted under memory pressure or lost on restart.
+#   * Frontend images are built with the real https/wss origin baked in.
+#
+# Usage:
+#   cp deploy/.env.production.example .env.production
+#   # ...fill in secrets...
+#   ./deploy/deploy.sh
+#
+# (deploy.sh wraps: docker compose -f compose.prod.yml --env-file .env.production up -d --build)
+
+name: umbra
+
+services:
+  # ---- Edge: TLS termination + routing (the only public service) ----
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - UMBRA_DOMAIN=${UMBRA_DOMAIN:?set UMBRA_DOMAIN, e.g. umbra-xmr.com}
+      - ACME_EMAIL=${ACME_EMAIL:?set ACME_EMAIL for Let's Encrypt notifications}
+    depends_on:
+      - api
+      - website
+      - miniapp
+
+  # ---- Umbra API (Rust) ----
+  api:
+    build: ./backend
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      - DATABASE_URL=postgres://${POSTGRES_USER:-umbra}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-umbra}
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY=${SECRET_KEY:?required — 64 hex chars, openssl rand -hex 32}
+      - CORS_ORIGINS=https://${UMBRA_DOMAIN},https://www.${UMBRA_DOMAIN}
+      - RUST_LOG=umbra=info,tower_http=warn
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      # Blockchain RPCs — defaulted so the stack boots; set real endpoints before
+      # enabling a chain for live swaps (see deploy/README.md go-live checklist).
+      - MONERO_RPC_URL=${MONERO_RPC_URL:-http://monero-wallet-rpc:18082/json_rpc}
+      - MONERO_RPC_USER=${MONERO_RPC_USER:-}
+      - MONERO_RPC_PASS=${MONERO_RPC_PASS:-}
+      - TON_API_URL=${TON_API_URL:-https://toncenter.com/api/v2}
+      - TON_API_KEY=${TON_API_KEY:-}
+      - ETH_RPC_URL=${ETH_RPC_URL:-https://eth.llamarpc.com}
+      - ARBITRUM_RPC_URL=${ARBITRUM_RPC_URL:-https://arb1.arbitrum.io/rpc}
+      - BASE_RPC_URL=${BASE_RPC_URL:-https://mainnet.base.org}
+      - SOLANA_RPC_URL=${SOLANA_RPC_URL:-https://api.mainnet-beta.solana.com}
+      - BITCOIN_RPC_URL=${BITCOIN_RPC_URL:-http://bitcoind:8332}
+      - BITCOIN_RPC_USER=${BITCOIN_RPC_USER:-}
+      - BITCOIN_RPC_PASS=${BITCOIN_RPC_PASS:-}
+      - EVM_DEPOSIT_ADDRESS=${EVM_DEPOSIT_ADDRESS:-}
+      - TON_DEPOSIT_ADDRESS=${TON_DEPOSIT_ADDRESS:-}
+      - SOL_DEPOSIT_ADDRESS=${SOL_DEPOSIT_ADDRESS:-}
+      # Proof layer — set explicit seeds in prod to separate key custody from
+      # SECRET_KEY. Empty => derived deterministically from SECRET_KEY.
+      - ATTESTATION_SECRET_KEY=${ATTESTATION_SECRET_KEY:-}
+      - ATTESTATION_PQ_SEED=${ATTESTATION_PQ_SEED:-}
+      - PQ_SIGNATURES_ENABLED=${PQ_SIGNATURES_ENABLED:-true}
+      - CANARY_STATEMENT=${CANARY_STATEMENT:-}
+      # Sentinel circuit breaker + optional Isolation Forest guard
+      - SENTINEL_ENABLED=${SENTINEL_ENABLED:-true}
+      - SENTINEL_OUTFLOW_CAPS=${SENTINEL_OUTFLOW_CAPS:-}
+      - RISK_ENGINE_URL=http://risk-engine:8080
+      - RISK_ENGINE_API_KEY=${RISK_API_KEY:?required — shared secret with the risk engine}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---- Risk Engine (Python / FastAPI) ----
+  risk-engine:
+    build: ./risk-engine
+    restart: unless-stopped
+    expose:
+      - "8080"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    environment:
+      - RISK_DATABASE_URL=postgresql://${POSTGRES_USER:-umbra}:${POSTGRES_PASSWORD:?required}@postgres:5432/${POSTGRES_DB:-umbra}
+      - RISK_REDIS_URL=redis://redis:6379
+      - RISK_MAX_SINGLE_ORDER_USD=${RISK_MAX_SINGLE_ORDER_USD:-50000}
+      - RISK_MAX_DAILY_VOLUME_USD=${RISK_MAX_DAILY_VOLUME_USD:-500000}
+      - RISK_MAX_CHAIN_EXPOSURE_PCT=${RISK_MAX_CHAIN_EXPOSURE_PCT:-40}
+      - RISK_ANOMALY_Z_THRESHOLD=${RISK_ANOMALY_Z_THRESHOLD:-2.5}
+      - RISK_API_KEY=${RISK_API_KEY:?required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---- Enterprise Website (Next.js) ----
+  website:
+    build:
+      context: ./website
+      args:
+        NEXT_PUBLIC_API_URL: https://${UMBRA_DOMAIN}
+        NEXT_PUBLIC_WS_URL: wss://${UMBRA_DOMAIN}/ws
+    restart: unless-stopped
+    expose:
+      - "3000"
+    depends_on:
+      - api
+
+  # ---- Telegram Mini App (Vite -> nginx) ----
+  miniapp:
+    build:
+      context: .
+      dockerfile: miniapp.Dockerfile
+      args:
+        VITE_API_URL: https://${UMBRA_DOMAIN}
+        VITE_WS_URL: wss://${UMBRA_DOMAIN}
+    restart: unless-stopped
+    expose:
+      - "80"
+
+  # ---- Telegram Bot (opt-in: needs a bot token) ----
+  # Enable with:  ./deploy/deploy.sh --profile bot
+  bot:
+    build: ./bot
+    restart: unless-stopped
+    profiles: ["bot"]
+    environment:
+      - BOT_TOKEN=${TELEGRAM_BOT_TOKEN:?required to run the bot}
+      - API_BASE_URL=http://api:8000
+      - WEBAPP_URL=https://${UMBRA_DOMAIN}/app
+    depends_on:
+      - api
+
+  # ---- PostgreSQL (internal only — no host port) ----
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-umbra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: ${POSTGRES_DB:-umbra}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-umbra}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  # ---- Redis (internal only — no host port) ----
+  # noeviction: the sentinel pause flag must never be evicted under memory
+  # pressure (that would silently clear a tripped breaker). appendonly: it must
+  # also survive a restart.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy noeviction --appendonly yes
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 320m
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy_data:
+  caddy_config:
