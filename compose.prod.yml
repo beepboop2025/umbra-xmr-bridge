@@ -81,6 +81,9 @@ services:
       - SENTINEL_OUTFLOW_CAPS=${SENTINEL_OUTFLOW_CAPS:-}
       - RISK_ENGINE_URL=http://risk-engine:8080
       - RISK_ENGINE_API_KEY=${RISK_API_KEY:?required — shared secret with the risk engine}
+      # MPC solo mode: auto-complete signing sessions when no external signers
+      # run (test/solo setups). Set false + run signer processes for real MPC.
+      - MPC_SOLO_MODE=${MPC_SOLO_MODE:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -192,6 +195,34 @@ services:
         limits:
           memory: 512m
 
+  # ---- Bitcoin Core (SIGNET — outbound BTC hot wallet for XMR->BTC swaps) ----
+  # Internal-only. Signet is a lightweight test network (syncs in ~30-60 min).
+  # Sends BTC via `sendtoaddress` from the `umbra-btc` wallet (created + funded
+  # from a faucet after first sync). Mainnet go-live: drop -signet, use a mainnet
+  # node + funded wallet + security review. RPC on signet's default port 38332.
+  bitcoind:
+    image: lncm/bitcoind:v27.1
+    restart: unless-stopped
+    expose:
+      - "38332"
+    volumes:
+      - bitcoin_data:/data/.bitcoin
+    command:
+      - -signet
+      - -server=1
+      - -rpcuser=${BITCOIN_RPC_USER:?set BITCOIN_RPC_USER}
+      - -rpcpassword=${BITCOIN_RPC_PASS:?set BITCOIN_RPC_PASS}
+      - -rpcbind=0.0.0.0
+      - -rpcallowip=172.16.0.0/12
+      - -rpcallowip=127.0.0.1
+      - -fallbackfee=0.0002
+      - -prune=2000
+      - -dbcache=300
+    deploy:
+      resources:
+        limits:
+          memory: 1200m
+
   # ---- PostgreSQL (internal only — no host port) ----
   postgres:
     image: postgres:17-alpine
@@ -238,3 +269,4 @@ volumes:
   caddy_data:
   caddy_config:
   monero_wallet:
+  bitcoin_data:

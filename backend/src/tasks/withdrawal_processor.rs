@@ -5,10 +5,59 @@ use rust_decimal::prelude::ToPrimitive;
 use crate::models::order::{BridgeOrder, OrderStatus};
 use crate::AppState;
 
-/// Process a withdrawal for an order that has reached the `Bridging` status.
+/// Background loop: pick up orders that have reached `Bridging` (deposit fully
+/// confirmed) and drive them through signing + broadcast. Each order is claimed
+/// atomically (`bridging` -> `signing`) so overlapping iterations can never
+/// double-spend one order.
+pub async fn run(state: AppState) {
+    let poll = std::time::Duration::from_secs(10);
+    loop {
+        tokio::time::sleep(poll).await;
+
+        let ids = match sqlx::query_scalar::<_, String>(
+            "SELECT order_id FROM bridge_orders WHERE status = 'bridging' \
+             ORDER BY updated_at ASC LIMIT 20",
+        )
+        .fetch_all(&state.db)
+        .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(error = %e, "withdrawal_processor: poll failed");
+                continue;
+            }
+        };
+
+        for order_id in ids {
+            // Atomic claim — only one worker transitions this order.
+            let claimed = sqlx::query(
+                "UPDATE bridge_orders SET status = 'signing', step = $1, updated_at = NOW() \
+                 WHERE order_id = $2 AND status = 'bridging'",
+            )
+            .bind(OrderStatus::Signing.step())
+            .bind(&order_id)
+            .execute(&state.db)
+            .await;
+
+            match claimed {
+                Ok(r) if r.rows_affected() == 1 => {
+                    let st = state.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = process_withdrawal(st, order_id.clone()).await {
+                            tracing::error!(order_id = %order_id, error = %e, "withdrawal_processor: failed");
+                        }
+                    });
+                }
+                Ok(_) => {} // claimed elsewhere
+                Err(e) => tracing::error!(order_id = %order_id, error = %e, "withdrawal_processor: claim failed"),
+            }
+        }
+    }
+}
+
+/// Process a withdrawal for an order that has reached `Bridging`/`Signing`.
 ///
-/// This is **not** a background loop; it is invoked per-order, typically
-/// spawned from `confirmation_checker` when an order becomes fully confirmed.
+/// Invoked per-order by `run` once a deposit is fully confirmed.
 ///
 /// Lifecycle: Bridging -> Signing -> Sending -> Completed
 ///            (on error, any intermediate state -> Failed)

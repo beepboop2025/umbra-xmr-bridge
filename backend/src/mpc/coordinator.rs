@@ -41,16 +41,23 @@ pub struct MpcCoordinator {
     threshold: u32,
     #[allow(dead_code)]
     total_signers: u32,
+    /// Solo-operator mode: no external signers exist, so signing sessions
+    /// auto-complete on creation. The on-chain transaction is still signed by
+    /// the destination chain's own wallet (bitcoind / monero-wallet-rpc); this
+    /// session only gates the withdrawal state machine. Real t-of-n MPC applies
+    /// when this is false and separate signer processes submit shares.
+    solo_mode: bool,
     active_requests: HashMap<String, SigningSession>,
     /// Tracks all request_ids that have ever been used (anti-replay).
     used_request_ids: HashSet<String>,
 }
 
 impl MpcCoordinator {
-    pub fn new(threshold: u32, total_signers: u32) -> Self {
+    pub fn new(threshold: u32, total_signers: u32, solo_mode: bool) -> Self {
         Self {
             threshold,
             total_signers,
+            solo_mode,
             active_requests: HashMap::new(),
             used_request_ids: HashSet::new(),
         }
@@ -96,6 +103,17 @@ impl MpcCoordinator {
             request_id = %request_id,
             "Created new signing session"
         );
+
+        // Solo mode: complete immediately by submitting the threshold shares
+        // ourselves, since no external signers will.
+        if self.solo_mode {
+            for i in 0..self.threshold {
+                let _ = self
+                    .submit_share(&request_id, &format!("solo-{i}"), vec![i as u8])
+                    .await;
+            }
+            tracing::info!(request_id = %request_id, "MPC solo mode: signing session auto-completed");
+        }
 
         Ok(())
     }
@@ -211,7 +229,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_signing_session_lifecycle() {
-        let mut coord = MpcCoordinator::new(2, 3);
+        let mut coord = MpcCoordinator::new(2, 3, false);
         let tx_data = b"withdraw 1 XMR to TON";
 
         // Start session.

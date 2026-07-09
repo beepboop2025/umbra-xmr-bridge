@@ -49,6 +49,8 @@ pub struct Config {
     pub order_expiry_minutes: u64,
     pub mpc_threshold: u32,
     pub mpc_total_signers: u32,
+    /// Solo operator: auto-complete MPC signing sessions (no external signers).
+    pub mpc_solo_mode: bool,
 
     // Rate limiting
     pub rate_limit_rates_per_min: u32,
@@ -120,6 +122,7 @@ impl Config {
             order_expiry_minutes: env("ORDER_EXPIRY_MINUTES", "30").parse().unwrap_or(30),
             mpc_threshold: env("MPC_THRESHOLD", "2").parse().unwrap_or(2),
             mpc_total_signers: env("MPC_TOTAL_SIGNERS", "3").parse().unwrap_or(3),
+            mpc_solo_mode: env("MPC_SOLO_MODE", "false").parse().unwrap_or(false),
 
             rate_limit_rates_per_min: env("RATE_LIMIT_RATES", "60").parse().unwrap_or(60),
             rate_limit_orders_per_min: env("RATE_LIMIT_ORDERS", "10").parse().unwrap_or(10),

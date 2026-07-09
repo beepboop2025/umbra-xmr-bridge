@@ -118,6 +118,7 @@ async fn main() {
     let mpc_coordinator = Arc::new(Mutex::new(MpcCoordinator::new(
         config.mpc_threshold,
         config.mpc_total_signers,
+        config.mpc_solo_mode,
     )));
 
     tracing::info!("Blockchain RPC clients initialized");
