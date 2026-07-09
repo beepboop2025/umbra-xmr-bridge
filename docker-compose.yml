@@ -9,7 +9,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       - CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:5173
-      - RUST_LOG=umbra=info,tower_http=info
+      - RUST_LOG=xmr_bridge=info,tower_http=info
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - MONERO_RPC_URL=${MONERO_RPC_URL:-http://monero-wallet-rpc:18082/json_rpc}
       - TON_API_URL=${TON_API_URL:-https://toncenter.com/api/v2}

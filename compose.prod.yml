@@ -51,7 +51,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - SECRET_KEY=${SECRET_KEY:?required — 64 hex chars, openssl rand -hex 32}
       - CORS_ORIGINS=https://${UMBRA_DOMAIN},https://www.${UMBRA_DOMAIN}
-      - RUST_LOG=umbra=info,tower_http=warn
+      - RUST_LOG=xmr_bridge=info,tower_http=warn
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       # Blockchain RPCs — defaulted so the stack boots; set real endpoints before
       # enabling a chain for live swaps (see deploy/README.md go-live checklist).

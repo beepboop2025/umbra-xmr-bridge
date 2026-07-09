@@ -4,3 +4,6 @@ pub mod orders;
 pub mod admin;
 pub mod ws;
 pub mod proof;
+pub mod stats;
+pub mod explorer;
+pub mod wallet;

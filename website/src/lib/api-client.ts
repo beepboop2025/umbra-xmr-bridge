@@ -9,6 +9,24 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+/**
+ * Anonymous per-browser id for saved-address scoping (no accounts on a no-KYC
+ * bridge). Generated once and kept in localStorage; sent as X-Client-Id.
+ */
+function getClientId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    let id = window.localStorage.getItem('umbra_client_id');
+    if (!id) {
+      id = crypto.randomUUID();
+      window.localStorage.setItem('umbra_client_id', id);
+    }
+    return id;
+  } catch {
+    return null;
+  }
+}
+
 interface ApiError {
   message: string;
   status: number;
@@ -37,6 +55,11 @@ class ApiClient {
 
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    const clientId = getClientId();
+    if (clientId) {
+      headers['X-Client-Id'] = clientId;
     }
 
     const controller = new AbortController();

@@ -13,14 +13,20 @@ use crate::AppState;
 // Response / query schemas
 // ---------------------------------------------------------------------------
 
+/// The frontend passes `source`+`dest` (e.g. `?source=XMR&dest=BTC`); other
+/// callers pass `direction` (`?direction=xmr_to_btc`). Accept both.
 #[derive(Deserialize)]
 pub struct RateQuery {
-    pub direction: String,
+    pub direction: Option<String>,
+    pub source: Option<String>,
+    pub dest: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct RateHistoryQuery {
-    pub direction: String,
+    pub direction: Option<String>,
+    pub source: Option<String>,
+    pub dest: Option<String>,
     /// Period string: "1h", "4h", "24h", "7d", "30d"
     #[serde(default = "default_period")]
     pub period: String,
@@ -84,7 +90,7 @@ async fn get_rate(
 ) -> AppResult<Json<RateResponse>> {
     metrics::counter!("http_requests_total", "endpoint" => "get_rate").increment(1);
 
-    let direction = normalize_direction(&q.direction)?;
+    let direction = resolve_direction(q.direction.as_deref(), q.source.as_deref(), q.dest.as_deref())?;
     let data = rate_service::get_rate(&state, &direction).await?;
 
     Ok(Json(RateResponse {
@@ -103,7 +109,7 @@ async fn get_rate_history(
 ) -> AppResult<Json<RateHistoryResponse>> {
     metrics::counter!("http_requests_total", "endpoint" => "get_rate_history").increment(1);
 
-    let direction = normalize_direction(&q.direction)?;
+    let direction = resolve_direction(q.direction.as_deref(), q.source.as_deref(), q.dest.as_deref())?;
     validate_period(&q.period)?;
 
     let points = rate_service::get_rate_history(&state, &direction, &q.period).await?;
@@ -125,6 +131,27 @@ async fn get_rate_history(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Resolve a canonical direction from either an explicit `direction` or a
+/// `source`+`dest` pair, then validate it.
+fn resolve_direction(
+    direction: Option<&str>,
+    source: Option<&str>,
+    dest: Option<&str>,
+) -> AppResult<String> {
+    let raw = match (direction, source, dest) {
+        (Some(d), _, _) if !d.trim().is_empty() => d.to_string(),
+        (_, Some(s), Some(t)) if !s.trim().is_empty() && !t.trim().is_empty() => {
+            format!("{s}_to_{t}")
+        }
+        _ => {
+            return Err(AppError::BadRequest(
+                "Provide either 'direction' or both 'source' and 'dest'".into(),
+            ))
+        }
+    };
+    normalize_direction(&raw)
+}
 
 /// Ensure the direction string is one of the supported pairs.
 fn normalize_direction(raw: &str) -> AppResult<String> {

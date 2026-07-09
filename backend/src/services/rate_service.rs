@@ -192,6 +192,47 @@ pub async fn get_rate(state: &AppState, direction: &str) -> AppResult<RateData> 
     Ok(data)
 }
 
+/// USD prices for all supported coins, cached in Redis (60s) so aggregate
+/// callers (e.g. the stats endpoint) don't hit external APIs per request.
+/// Best-effort: returns an empty map if every source fails; callers treat a
+/// missing coin as a zero contribution rather than erroring.
+pub async fn usd_prices(state: &AppState) -> HashMap<String, f64> {
+    const KEY: &str = "prices:usd";
+
+    {
+        let mut conn = state.redis.clone();
+        if let Ok(Some(s)) = redis::cmd("GET")
+            .arg(KEY)
+            .query_async::<_, Option<String>>(&mut conn)
+            .await
+        {
+            if let Ok(m) = serde_json::from_str::<HashMap<String, f64>>(&s) {
+                return m;
+            }
+        }
+    }
+
+    match fetch_prices(state).await {
+        Ok(m) => {
+            if let Ok(s) = serde_json::to_string(&m) {
+                let mut conn = state.redis.clone();
+                let _: Result<String, _> = redis::cmd("SET")
+                    .arg(KEY)
+                    .arg(&s)
+                    .arg("EX")
+                    .arg(60_u64)
+                    .query_async(&mut conn)
+                    .await;
+            }
+            m
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "usd_prices: all sources failed");
+            HashMap::new()
+        }
+    }
+}
+
 /// Calculate conversion result given amount, direction, rate, and fees.
 pub fn calculate_conversion(
     amount: Decimal,
@@ -276,33 +317,59 @@ fn parse_direction(direction: &str) -> AppResult<(String, String)> {
     Ok((parts[0].to_string(), parts[1].to_string()))
 }
 
-/// Fetch USD prices from CoinGecko, with Binance fallback, then CoinCap fallback.
+/// Coins every supported pair needs a USD price for. Every direction routes
+/// through XMR, so XMR is mandatory; the majors round out the cross-rates. A
+/// source that can't supply all of these (Binance delisted XMR in 2024) is
+/// rejected so the next source is tried instead of a half-empty map slipping
+/// through as "success".
+const CORE_COINS: [&str; 4] = ["XMR", "BTC", "ETH", "SOL"];
+
+/// A price map is only usable if it carries every core coin at a non-zero price.
+/// This is what turns a rate-limited HTTP 200 — whose body deserializes to
+/// all-`None`, leaving only the hardcoded stablecoins — into a hard error that
+/// triggers failover, rather than a map that later 500s with "No USD price".
+fn require_core(map: &HashMap<String, f64>, source: &str) -> AppResult<()> {
+    for coin in CORE_COINS {
+        match map.get(coin) {
+            Some(p) if *p > 0.0 => {}
+            _ => return Err(AppError::Internal(format!("{source}: missing price for {coin}"))),
+        }
+    }
+    Ok(())
+}
+
+/// Fetch USD prices, trying sources in order of coverage/reliability:
+/// CoinGecko (all coins incl. TON), then Kraken (XMR/BTC/ETH/SOL/TON), then
+/// Binance (no XMR — last resort). Each source must pass `require_core` or we
+/// move on. CoinCap was retired (its API shut down), so it is no longer tried.
 async fn fetch_prices(state: &AppState) -> AppResult<HashMap<String, f64>> {
-    // Try CoinGecko first
-    if let Ok(prices) = fetch_coingecko(state).await {
-        return Ok(prices);
+    match fetch_coingecko(state).await {
+        Ok(prices) => return Ok(prices),
+        Err(e) => tracing::warn!(error = %e, "rate: CoinGecko failed, trying Kraken"),
     }
-    tracing::warn!("CoinGecko failed, trying Binance");
-
-    // Fallback: Binance
-    if let Ok(prices) = fetch_binance(state).await {
-        return Ok(prices);
+    match fetch_kraken(state).await {
+        Ok(prices) => return Ok(prices),
+        Err(e) => tracing::warn!(error = %e, "rate: Kraken failed, trying Binance"),
     }
-    tracing::warn!("Binance failed, trying CoinCap");
-
-    // Fallback: CoinCap
-    if let Ok(prices) = fetch_coincap(state).await {
-        return Ok(prices);
+    match fetch_binance(state).await {
+        Ok(prices) => return Ok(prices),
+        Err(e) => tracing::warn!(error = %e, "rate: Binance failed"),
     }
-
-    Err(AppError::Internal(
-        "All price sources failed".into(),
-    ))
+    Err(AppError::Internal("All price sources failed".into()))
 }
 
 async fn fetch_coingecko(state: &AppState) -> AppResult<HashMap<String, f64>> {
     let timer = std::time::Instant::now();
-    let resp: CoinGeckoResponse = state.http_client.get(COINGECKO_URL).send().await?.json().await?;
+    // error_for_status: a 429/5xx must fail here, not deserialize to an all-None
+    // body that passes for "success".
+    let resp: CoinGeckoResponse = state
+        .http_client
+        .get(COINGECKO_URL)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
     let elapsed = timer.elapsed().as_secs_f64();
     metrics::histogram!("rate_fetch_duration_seconds", "source" => "coingecko").record(elapsed);
 
@@ -328,16 +395,20 @@ async fn fetch_coingecko(state: &AppState) -> AppResult<HashMap<String, f64>> {
     map.insert("USDT".into(), 1.0);
     map.insert("USDC".into(), 1.0);
 
-    if map.is_empty() {
-        return Err(AppError::Internal("CoinGecko returned empty prices".into()));
-    }
-
+    require_core(&map, "coingecko")?;
     Ok(map)
 }
 
 async fn fetch_binance(state: &AppState) -> AppResult<HashMap<String, f64>> {
     let timer = std::time::Instant::now();
-    let resp: Vec<BinanceTicker> = state.http_client.get(BINANCE_URL).send().await?.json().await?;
+    let resp: Vec<BinanceTicker> = state
+        .http_client
+        .get(BINANCE_URL)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
     let elapsed = timer.elapsed().as_secs_f64();
     metrics::histogram!("rate_fetch_duration_seconds", "source" => "binance").record(elapsed);
 
@@ -357,52 +428,64 @@ async fn fetch_binance(state: &AppState) -> AppResult<HashMap<String, f64>> {
     map.insert("USDT".into(), 1.0);
     map.insert("USDC".into(), 1.0);
 
-    if map.is_empty() {
-        return Err(AppError::Internal("Binance returned empty prices".into()));
-    }
-
+    // Binance no longer lists XMR, so this fails the core check for every pair
+    // we serve. Kept only as a theoretical last resort.
+    require_core(&map, "binance")?;
     Ok(map)
 }
 
-/// CoinCap v2 as a last-resort fallback.
-async fn fetch_coincap(state: &AppState) -> AppResult<HashMap<String, f64>> {
+/// Kraken public ticker — the reliable XMR source now that Binance dropped it
+/// and CoinCap shut down. Kraken uses idiosyncratic pair names (XXMRZUSD,
+/// XXBTZUSD, ...), so we match assets by substring rather than exact key.
+async fn fetch_kraken(state: &AppState) -> AppResult<HashMap<String, f64>> {
     #[derive(Deserialize)]
-    struct CoinCapResp {
-        data: Vec<CoinCapAsset>,
+    struct KrakenResp {
+        result: HashMap<String, KrakenPair>,
     }
     #[derive(Deserialize)]
-    struct CoinCapAsset {
-        symbol: String,
-        #[serde(rename = "priceUsd")]
-        price_usd: Option<String>,
+    struct KrakenPair {
+        /// `c` = [last trade price, lot volume]; index 0 is the price.
+        c: Vec<String>,
     }
 
     let timer = std::time::Instant::now();
-    let url = "https://api.coincap.io/v2/assets?ids=monero,bitcoin,ethereum,solana,the-open-network";
-    let resp: CoinCapResp = state.http_client.get(url).send().await?.json().await?;
+    let url = "https://api.kraken.com/0/public/Ticker?pair=XMRUSD,XBTUSD,ETHUSD,SOLUSD,TONUSD";
+    let resp: KrakenResp = state
+        .http_client
+        .get(url)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
     let elapsed = timer.elapsed().as_secs_f64();
-    metrics::histogram!("rate_fetch_duration_seconds", "source" => "coincap").record(elapsed);
+    metrics::histogram!("rate_fetch_duration_seconds", "source" => "kraken").record(elapsed);
 
     let mut map = HashMap::new();
-    for a in &resp.data {
-        let price: f64 = a.price_usd.as_deref().unwrap_or("0").parse().unwrap_or(0.0);
-        match a.symbol.as_str() {
-            "XMR" => { map.insert("XMR".into(), price); }
-            "BTC" => { map.insert("BTC".into(), price); }
-            "ETH" => { map.insert("ETH".into(), price); }
-            "SOL" => { map.insert("SOL".into(), price); }
-            "TON" => { map.insert("TON".into(), price); }
-            _ => {}
+    for (pair, data) in &resp.result {
+        let price: f64 = data.c.first().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+        if price <= 0.0 {
+            continue;
+        }
+        let p = pair.to_uppercase();
+        // Order matters: check the most specific tokens first.
+        if p.contains("XMR") {
+            map.insert("XMR".into(), price);
+        } else if p.contains("XBT") || p.contains("BTC") {
+            map.insert("BTC".into(), price);
+        } else if p.contains("ETH") {
+            map.insert("ETH".into(), price);
+        } else if p.contains("SOL") {
+            map.insert("SOL".into(), price);
+        } else if p.contains("TON") {
+            map.insert("TON".into(), price);
         }
     }
 
     map.insert("USDT".into(), 1.0);
     map.insert("USDC".into(), 1.0);
 
-    if map.is_empty() {
-        return Err(AppError::Internal("CoinCap returned empty prices".into()));
-    }
-
+    require_core(&map, "kraken")?;
     Ok(map)
 }
 

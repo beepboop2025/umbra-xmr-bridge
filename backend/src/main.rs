@@ -58,7 +58,7 @@ async fn main() {
     // Tracing
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "umbra=debug,tower_http=debug".into()))
+            .unwrap_or_else(|_| "xmr_bridge=debug,tower_http=debug".into()))
         .with(tracing_subscriber::fmt::layer())
         .init();
 
@@ -83,6 +83,7 @@ async fn main() {
     let http_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .pool_max_idle_per_host(10)
+        .user_agent("Umbra/1.0 (+https://umbra-xmr.com)")
         .build()
         .expect("Failed to create HTTP client");
 
@@ -173,6 +174,9 @@ async fn main() {
         .merge(routes::admin::router())
         .merge(routes::ws::router())
         .merge(routes::proof::router())
+        .merge(routes::stats::router())
+        .merge(routes::explorer::router())
+        .merge(routes::wallet::router())
         .route("/metrics", axum::routing::get(move || async move { metrics_handle.render() }))
         .layer(middleware::security::SecurityHeadersLayer)
         .layer(CompressionLayer::new())
