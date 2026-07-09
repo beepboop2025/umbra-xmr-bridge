@@ -152,12 +152,40 @@ class ApiClient {
     if (params?.limit) searchParams.set('limit', String(params.limit));
     if (params?.status) searchParams.set('status', params.status);
     if (params?.chain) searchParams.set('chain', params.chain);
-    return this.request<{
-      orders: OrderSummary[];
+    // The backend speaks {data, total, limit, offset} with direction/from_amount/
+    // to_amount — normalize to the OrderSummary contract the UI renders.
+    const raw = await this.request<{
+      data: Array<{
+        order_id: string;
+        direction: string;
+        from_amount: string;
+        to_amount: string;
+        status: OrderStatus;
+        created_at: string;
+      }>;
       total: number;
-      page: number;
-      pages: number;
+      limit: number;
+      offset: number;
     }>(`/api/orders?${searchParams}`);
+    const limit = raw.limit || params?.limit || 20;
+    const orders: OrderSummary[] = (raw.data ?? []).map((o) => {
+      const [source_chain = '', dest_chain = ''] = o.direction.split('_TO_');
+      return {
+        order_id: o.order_id,
+        source_chain,
+        dest_chain,
+        amount: Number(o.from_amount) || 0,
+        receive_amount: Number(o.to_amount) || 0,
+        status: o.status,
+        created_at: o.created_at,
+      };
+    });
+    return {
+      orders,
+      total: raw.total,
+      page: Math.floor((raw.offset || 0) / limit) + 1,
+      pages: Math.max(1, Math.ceil((raw.total || 0) / limit)),
+    };
   }
 
   // Stats endpoints
