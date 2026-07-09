@@ -218,6 +218,11 @@ services:
       - -fallbackfee=0.0002
       - -prune=2000
       - -dbcache=300
+      # Seed peers — the DNS seed can return nothing at cold start in a
+      # container, leaving 0 connections; these bootstrap signet reliably.
+      - -addnode=seed.signet.bitcoin.sprovoost.nl
+      - -addnode=46.62.188.51:38333
+      - -addnode=141.94.143.203:38333
     deploy:
       resources:
         limits:

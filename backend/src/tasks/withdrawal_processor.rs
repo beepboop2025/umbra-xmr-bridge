@@ -455,10 +455,11 @@ async fn publish_event(
     let channel = format!("order:{order_id}");
     let msg = payload.to_string();
 
+    // PUBLISH returns the subscriber count (integer), not a string.
     if let Err(e) = redis::cmd("PUBLISH")
         .arg(&channel)
         .arg(&msg)
-        .query_async::<_, String>(&mut conn)
+        .query_async::<_, i64>(&mut conn)
         .await
     {
         tracing::warn!(error = %e, "withdrawal_processor: failed to publish event");
