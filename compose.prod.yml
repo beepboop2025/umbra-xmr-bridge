@@ -162,6 +162,36 @@ services:
     depends_on:
       - api
 
+  # ---- Monero wallet RPC (STAGENET hot wallet — receives XMR deposits) ----
+  # Internal-only; runs auth-less because the backend's Monero client uses basic
+  # auth, incompatible with monero-wallet-rpc's digest — safe here because only
+  # the api container can reach it on the private network. Opens the pre-created
+  # `umbra-hot` wallet and syncs against a remote stagenet node (a full node is
+  # ~200GB and won't fit this box). Switch --stagenet -> mainnet + a mainnet node
+  # for the real go-live.
+  monero-wallet-rpc:
+    image: sethsimmons/simple-monero-wallet-rpc:latest
+    restart: unless-stopped
+    expose:
+      - "18082"
+    volumes:
+      - monero_wallet:/wallet
+    command: >-
+      --stagenet
+      --daemon-address ${MONERO_NODE:-node.sethforprivacy.com:38089}
+      --untrusted-daemon
+      --wallet-file /wallet/umbra-hot
+      --password ${MONERO_WALLET_PASSWORD:?set MONERO_WALLET_PASSWORD}
+      --rpc-bind-ip 0.0.0.0
+      --rpc-bind-port 18082
+      --confirm-external-bind
+      --disable-rpc-login
+      --non-interactive
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
   # ---- PostgreSQL (internal only — no host port) ----
   postgres:
     image: postgres:17-alpine
@@ -207,3 +237,4 @@ volumes:
   redisdata:
   caddy_data:
   caddy_config:
+  monero_wallet:
