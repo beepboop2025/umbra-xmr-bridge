@@ -26,6 +26,20 @@ use crate::utils::merkle;
 pub const CHECKPOINT_VERSION: &str = "1";
 const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
+/// Serialize a timestamp in the SAME format the tree head is signed with
+/// (`SecondsFormat::Micros` — always six fractional digits). chrono's default
+/// serde trims trailing zero-groups (`…123Z` instead of `…123000Z`), so a
+/// checkpoint sealed on a whole-millisecond boundary would be transmitted in a
+/// form that differs from the bytes its signature covers, and every offline
+/// verifier would reject it (~1 in 1000 checkpoints). Anchoring the wire format
+/// to the signed format closes that gap. See `tree_head_payload`.
+fn serialize_sealed_at<S>(dt: &chrono::DateTime<chrono::Utc>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    s.serialize_str(&dt.to_rfc3339_opts(chrono::SecondsFormat::Micros, true))
+}
+
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct Checkpoint {
     pub id: i64,
@@ -38,6 +52,7 @@ pub struct Checkpoint {
     pub signature_pq: Option<String>,
     pub pq_public_key: Option<String>,
     pub pq_key_id: Option<String>,
+    #[serde(serialize_with = "serialize_sealed_at")]
     pub sealed_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -429,4 +444,52 @@ pub async fn canary(
         public_key: service.public_key_hex(),
         signature,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression guard for the "sign one representation, transmit another" bug:
+    /// a checkpoint sealed on a whole-millisecond boundary must serialize its
+    /// `sealed_at` byte-identically to the string the signature covers, or every
+    /// offline verifier rejects it.
+    #[test]
+    fn sealed_at_serializes_in_signed_format() {
+        // 123_000_000 ns == 123000 µs == a whole millisecond (micros % 1000 == 0),
+        // exactly the case chrono's default serde would trim to `.123Z`.
+        let sealed_at = chrono::DateTime::from_timestamp(1_783_600_496, 123_000_000).unwrap();
+        assert_eq!(sealed_at.timestamp_subsec_micros() % 1000, 0);
+
+        let cp = Checkpoint {
+            id: 1,
+            tree_size: 7,
+            root_hash: "aa".repeat(32),
+            prev_root_hash: "bb".repeat(32),
+            signature: "cc".repeat(64),
+            public_key: "dd".repeat(32),
+            key_id: "0011223344556677".to_string(),
+            signature_pq: None,
+            pq_public_key: None,
+            pq_key_id: None,
+            sealed_at,
+        };
+
+        let wire = serde_json::to_value(&cp).unwrap();
+        let signed = tree_head_payload(
+            cp.tree_size,
+            &cp.root_hash,
+            &cp.prev_root_hash,
+            &cp.key_id,
+            &cp.sealed_at,
+        );
+
+        // The field the client reads must equal the field that was signed.
+        assert_eq!(wire["sealed_at"], signed["sealed_at"]);
+        assert!(
+            wire["sealed_at"].as_str().unwrap().ends_with(".123000Z"),
+            "expected 6-digit micros, got {}",
+            wire["sealed_at"]
+        );
+    }
 }

@@ -64,7 +64,8 @@ async fn xmr_deposit_detected(pool: PgPool) {
 /// Verify that orders without a deposit address are skipped gracefully.
 #[sqlx::test]
 async fn deposit_skipped_without_address(pool: PgPool) {
-    let order_id = Uuid::new_v4().to_string();
+    // order_id column is VARCHAR(32); a full UUID (36 chars) overflows.
+    let order_id = format!("test_{}", &Uuid::new_v4().simple().to_string()[..12]);
 
     sqlx::query(
         r#"

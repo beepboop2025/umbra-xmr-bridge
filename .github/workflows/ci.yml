@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (Rust)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: umbra
+          POSTGRES_PASSWORD: umbra
+          POSTGRES_DB: umbra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U umbra"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Runtime tests (#[sqlx::test]) create their own databases from this URL;
+      # the code uses sqlx's runtime query API, so the build itself needs no DB.
+      DATABASE_URL: postgres://umbra:umbra@localhost:5432/umbra
+      REDIS_URL: redis://localhost:6379
+      SECRET_KEY: ci-secret-key-at-least-32-characters-long
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: Clippy (advisory)
+        working-directory: backend
+        run: cargo clippy --all-targets
+
+      - name: Test
+        working-directory: backend
+        run: cargo test --all-targets
+
+  risk-engine:
+    name: Risk Engine (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: risk-engine
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Test
+        working-directory: risk-engine
+        run: pytest tests/ -v
+
+  bot:
+    name: Bot (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: bot
+        run: pip install -r requirements.txt
+
+      - name: Compile check
+        working-directory: bot
+        run: python -m compileall bot
+
+  miniapp:
+    name: Mini App (Vite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+  website:
+    name: Website (Next.js)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install
+        working-directory: website
+        run: npm install
+
+      - name: Type check
+        working-directory: website
+        run: npx tsc --noEmit
+
+      - name: Build
+        working-directory: website
+        run: npm run build
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [backend, risk-engine, miniapp, website]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -t umbra-api ./backend
+
+      - name: Build Risk Engine image
+        run: docker build -t umbra-risk-engine ./risk-engine
+
+      - name: Build Bot image
+        run: docker build -t umbra-bot ./bot
+
+      - name: Build Website image
+        run: docker build -t umbra-website ./website

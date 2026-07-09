@@ -61,17 +61,54 @@ pub async fn pause_state(redis: &crate::redis::RedisPool) -> Option<PauseState> 
     raw.and_then(|s| serde_json::from_str(&s).ok())
 }
 
-/// Gate for order intake. Fails closed with 503 when the sentinel has tripped.
+/// Gate for order intake. Fails **closed** with 503 whenever we cannot prove
+/// the breaker is clear — a tripped breaker, an unparseable state value, *or* a
+/// Redis outage all refuse new intake. This must not delegate to `pause_state`,
+/// whose `Option` return collapses "not paused" and "couldn't ask Redis" into
+/// the same `None`; for the gate guarding a drain, that ambiguity is the whole
+/// ballgame and must resolve to "reject".
 pub async fn ensure_accepting_orders(redis: &crate::redis::RedisPool) -> AppResult<()> {
-    if let Some(p) = pause_state(redis).await {
-        metrics::counter!("sentinel_rejected_orders_total").increment(1);
-        return Err(AppError::ServiceUnavailable(format!(
+    let mut conn = redis.clone();
+    let raw: Option<String> = match redis::cmd("GET")
+        .arg(PAUSE_KEY)
+        .query_async::<_, Option<String>>(&mut conn)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            metrics::counter!("sentinel_state_read_errors_total").increment(1);
+            tracing::error!(error = %e,
+                "SENTINEL: cannot read breaker state; refusing intake (fail closed)");
+            return Err(AppError::ServiceUnavailable(
+                "Bridge intake is temporarily unavailable (breaker state unknown). \
+                 Existing orders continue to settle; see /v1/proof/status."
+                    .to_string(),
+            ));
+        }
+    };
+
+    let Some(raw) = raw else {
+        return Ok(()); // key absent => breaker clear
+    };
+
+    metrics::counter!("sentinel_rejected_orders_total").increment(1);
+    match serde_json::from_str::<PauseState>(&raw) {
+        Ok(p) => Err(AppError::ServiceUnavailable(format!(
             "Bridge intake is paused ({}): {}. Existing orders continue to settle; \
              see /v1/proof/status for live state.",
             p.check, p.reason
-        )));
+        ))),
+        // A present-but-corrupt value is still a pause signal: fail closed.
+        Err(e) => {
+            tracing::error!(error = %e,
+                "SENTINEL: breaker state present but unparseable; refusing intake");
+            Err(AppError::ServiceUnavailable(
+                "Bridge intake is paused (breaker state unreadable). \
+                 Existing orders continue to settle."
+                    .to_string(),
+            ))
+        }
     }
-    Ok(())
 }
 
 /// Engage the circuit breaker. Idempotent; the first trip wins.

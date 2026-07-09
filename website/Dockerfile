@@ -16,6 +16,15 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
+# NEXT_PUBLIC_* are inlined into the client bundle at BUILD time, so they must
+# be present now — not merely as runtime `environment:` in compose. Passed as
+# build args by compose.prod.yml; default to same-origin-friendly localhost for
+# plain `docker build`.
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
+
 RUN npm run build
 
 # Stage 3: Production

@@ -14,6 +14,7 @@ human-readable summary and performs two local checks:
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 from typing import Any
 
@@ -106,7 +107,7 @@ def _verify_note(order_id: str) -> str:
     return (
         f"\U0001f50e Verify independently at {where} or with the offline "
         f"verifier.\n"
-        f"API: <code>GET /v1/proof/receipt/{order_id}</code>  \u00b7  "
+        f"API: <code>GET /v1/proof/receipt/{html.escape(order_id)}</code>  \u00b7  "
         f"key: <code>GET /v1/proof/key</code>"
     )
 
@@ -117,18 +118,19 @@ def format_receipts(order_id: str, data: dict[str, Any]) -> str:
     count = data.get("count", len(receipts))
 
     lines = [
-        f"\U0001f9fe <b>Signed Receipts</b>  <code>{order_id}</code>",
+        f"\U0001f9fe <b>Signed Receipts</b>  <code>{html.escape(order_id)}</code>",
         "",
         f"<b>Receipts:</b> {count}",
     ]
 
     for i, r in enumerate(receipts[:_MAX_EVENTS_SHOWN]):
         payload = r.get("payload") or {}
-        event = payload.get("event", "unknown")
+        event = str(payload.get("event", "unknown"))
         emoji = EVENT_EMOJI.get(event, "\U0001f4c4")
         ts = payload.get("timestamp", "N/A")
         lines.append(
-            f"  {i + 1}. {emoji} {event.replace('_', ' ')} \u2014 <i>{ts}</i>"
+            f"  {i + 1}. {emoji} {html.escape(event.replace('_', ' '))} \u2014 "
+            f"<i>{html.escape(str(ts))}</i>"
         )
     if len(receipts) > _MAX_EVENTS_SHOWN:
         lines.append(f"  \u2026 and {len(receipts) - _MAX_EVENTS_SHOWN} more")
@@ -136,8 +138,8 @@ def format_receipts(order_id: str, data: dict[str, Any]) -> str:
     latest = receipts[-1]
     lines += [
         "",
-        f"<b>Signing key:</b> <code>{latest.get('key_id', 'N/A')}</code>",
-        f"<b>Latest hash:</b> <code>{latest.get('payload_hash', 'N/A')}</code>",
+        f"<b>Signing key:</b> <code>{html.escape(str(latest.get('key_id', 'N/A')))}</code>",
+        f"<b>Latest hash:</b> <code>{html.escape(str(latest.get('payload_hash', 'N/A')))}</code>",
     ]
 
     # Local check 1: hash-chain linkage (no crypto required)
@@ -185,12 +187,12 @@ async def cmd_receipt(message: Message) -> None:
     except APIError as exc:
         if exc.status_code == 404:
             await message.answer(
-                f"\u274c No receipts found for order <code>{order_id}</code>.",
+                f"\u274c No receipts found for order <code>{html.escape(order_id)}</code>.",
                 parse_mode="HTML",
             )
         else:
             await message.answer(
-                f"\u26a0\ufe0f Error fetching receipts: {exc.detail}",
+                f"\u26a0\ufe0f Error fetching receipts: {html.escape(str(exc.detail))}",
                 parse_mode="HTML",
             )
         return
@@ -203,7 +205,7 @@ async def cmd_receipt(message: Message) -> None:
 
     if not data.get("receipts"):
         await message.answer(
-            f"\U0001f9fe No receipts recorded yet for <code>{order_id}</code>.",
+            f"\U0001f9fe No receipts recorded yet for <code>{html.escape(order_id)}</code>.",
             parse_mode="HTML",
         )
         return
@@ -227,22 +229,22 @@ def format_trust(status: dict[str, Any] | None, canary: dict[str, Any] | None) -
         lines.append("\U0001f534 <b>Accepting orders:</b> No \u2014 PAUSED")
         paused = status.get("paused") or {}
         if paused.get("reason"):
-            lines.append(f"<b>Reason:</b> {paused['reason']}")
+            lines.append(f"<b>Reason:</b> {html.escape(str(paused['reason']))}")
         if paused.get("check"):
-            lines.append(f"<b>Tripped check:</b> <code>{paused['check']}</code>")
+            lines.append(f"<b>Tripped check:</b> <code>{html.escape(str(paused['check']))}</code>")
         if paused.get("tripped_at"):
-            lines.append(f"<b>Since:</b> {paused['tripped_at']}")
+            lines.append(f"<b>Since:</b> {html.escape(str(paused['tripped_at']))}")
 
     lines.append("")
     if canary is None:
         lines.append("\u26a0\ufe0f Canary unavailable.")
     else:
-        statement = canary.get("statement", "")
+        statement = str(canary.get("statement", ""))
         snippet = statement if len(statement) <= 200 else statement[:200] + "\u2026"
         lines += [
             "\U0001f424 <b>Warrant Canary</b>",
-            f"<b>Issued:</b> {canary.get('issued_at', 'N/A')}",
-            f"<i>\u201c{snippet}\u201d</i>",
+            f"<b>Issued:</b> {html.escape(str(canary.get('issued_at', 'N/A')))}",
+            f"<i>\u201c{html.escape(snippet)}\u201d</i>",
             "",
             f"\U0001f333 <b>Transparency log:</b> "
             f"{canary.get('latest_tree_size', 'N/A')} entries",

@@ -1,5 +1,8 @@
 # Stage 1: Build
-FROM rust:1.78-slim-bookworm AS builder
+# Latest stable Rust: several transitive deps (e.g. the edition-2024 crates
+# pulled in via sqlx/ed25519/fips204) now require rustc > 1.78, so an old pin
+# fails at the dependency layer. `rust:1` tracks the newest stable 1.x.
+FROM rust:1-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 

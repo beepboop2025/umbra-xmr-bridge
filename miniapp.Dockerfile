@@ -5,6 +5,14 @@ COPY package.json .
 RUN npm install
 
 COPY . .
+
+# Vite inlines import.meta.env.VITE_* at BUILD time. compose.prod.yml passes the
+# real https/wss origin as build args; defaults keep plain `docker build` working.
+ARG VITE_API_URL=http://localhost:8000
+ARG VITE_WS_URL=ws://localhost:8000
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_WS_URL=$VITE_WS_URL
+
 RUN npm run build
 
 FROM nginx:alpine

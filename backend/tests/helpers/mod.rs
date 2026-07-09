@@ -18,7 +18,10 @@ pub async fn create_test_order(
     metadata: Option<Value>,
 ) -> String {
     let id = Uuid::new_v4();
-    let order_id = format!("test-{}", Uuid::new_v4());
+    // order_id column is VARCHAR(32); production ids are `br_` + 12 hex (15
+    // chars). A full UUID would be 41 chars and overflow, so keep the test id
+    // short too.
+    let order_id = format!("test_{}", &Uuid::new_v4().simple().to_string()[..12]);
     let deposit_address = format!("deposit-{}", &order_id[..8]);
     let dest_address = format!("dest-{}", &order_id[..8]);
     let meta = metadata.unwrap_or(serde_json::json!({}));
