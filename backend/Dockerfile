@@ -18,7 +18,8 @@ RUN touch src/main.rs && cargo build --release
 # Stage 2: Runtime
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+# curl is needed by the container HEALTHCHECK and deploy.sh's health probe.
+RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 RUN useradd -r -s /bin/false bridge
 
 WORKDIR /app
