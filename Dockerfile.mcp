@@ -1,0 +1,16 @@
+# Umbra Proof-Layer MCP server — read-only verification over stdio.
+# Zero third-party dependencies: the verifier (RFC 8032 Ed25519 + RFC 6962
+# Merkle) and the MCP server are pure Python stdlib, so the image is tiny and
+# has no build step. It ships ONLY the two verification modules — no bridge
+# code, no keys, no swap logic.
+#
+# The label proves namespace ownership to the MCP registry; it MUST match
+# server.json `name`.
+FROM python:3.12-slim
+
+LABEL io.modelcontextprotocol.server.name="io.github.beepboop2025/umbra-proof"
+
+WORKDIR /app
+COPY tools/verify_receipt.py tools/mcp_server.py ./tools/
+
+ENTRYPOINT ["python", "tools/mcp_server.py"]

@@ -1,0 +1,50 @@
+name: publish-mcp
+
+# Build the Umbra Proof-Layer MCP server image (read-only verification only),
+# push it to GHCR, and publish the listing to the official MCP registry
+# (io.github.beepboop2025/umbra-proof). Autonomous: GHCR push uses the
+# workflow's GITHUB_TOKEN, registry publish uses GitHub OIDC.
+#
+# One-time manual step after the FIRST run: make the GHCR package public
+# (GitHub → your packages → umbra-proof-mcp → Package settings → Change
+# visibility → Public). The registry only accepts public images, and GHCR
+# packages are private on first push. This click is also the deliberate go/no-go
+# for listing an Umbra-branded server publicly.
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  IMAGE: ghcr.io/beepboop2025/umbra-proof-mcp:v0.1.0
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build and push the MCP server image
+        run: |
+          docker build -f Dockerfile.mcp -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
+            | tar xz mcp-publisher && sudo mv mcp-publisher /usr/local/bin/
+
+      - name: Publish the listing to the MCP registry
+        run: |
+          mcp-publisher login github-oidc
+          mcp-publisher publish
