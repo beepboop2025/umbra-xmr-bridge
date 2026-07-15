@@ -22,7 +22,7 @@ permissions:
   id-token: write
 
 env:
-  IMAGE: ghcr.io/beepboop2025/umbra-proof-mcp:v0.1.0
+  IMAGE: ghcr.io/beepboop2025/umbra-proof-mcp:v0.1.1
 
 jobs:
   publish:

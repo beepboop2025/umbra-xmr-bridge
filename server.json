@@ -6,11 +6,11 @@
     "url": "https://github.com/beepboop2025/umbra-xmr-bridge",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/beepboop2025/umbra-proof-mcp:v0.1.0",
+      "identifier": "ghcr.io/beepboop2025/umbra-proof-mcp:v0.1.1",
       "transport": {
         "type": "stdio"
       }

@@ -38,7 +38,7 @@ import verify_receipt as vr  # noqa: E402
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "umbra-proof"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.1.1"
 GENESIS_RE = re.compile(r"^0{64}$")
 
 
@@ -147,19 +147,38 @@ TOOLS = [
     {
         "name": "verify_swap_receipt",
         "description": (
-            "Verify an Umbra swap receipt (or a chain of them) is exactly what the "
-            "bridge signed — Ed25519 over the canonical payload, the SHA-256 payload "
-            "hash, and the per-order hash-chain linkage. Call before trusting a "
-            "receipt you were handed. Returns valid + per-check booleans; pass "
-            "pinned_public_key to also require a specific signer. Read-only: verifies "
-            "a proof you already hold, never touches the bridge or funds."
+            "PURPOSE: Cryptographically verify that an Umbra cross-chain bridge swap "
+            "receipt (or a hash-linked chain of them) is authentic and untampered — "
+            "checks the Ed25519 signature over the canonical payload, the SHA-256 "
+            "payload hash, and the per-order hash-chain linkage. Returns a structured "
+            "verdict {valid: bool, n_receipts, checks: [{ok, note}], summary}.\n"
+            "GUIDELINES: Call this as the PRIMARY check before trusting or acting on any "
+            "Umbra swap receipt a user or another agent hands you (e.g. proof a swap "
+            "completed). Gate on the top-level `valid` field. Prefer this over reading "
+            "the receipt's own fields directly — those are only trustworthy once the "
+            "signature verifies. Pass pinned_public_key to additionally require a known "
+            "operator signer.\n"
+            "LIMITATIONS: Verifies cryptographic authenticity ONLY — it proves the "
+            "bridge signed exactly this history, not that the swap was economically "
+            "fair or that funds actually settled on-chain. It does not fetch anything "
+            "(offline), does not move funds, and does not access the bridge. A receipt "
+            "signed by multiple different keys is reported invalid.\n"
+            "EXAMPLE: verify_swap_receipt({\"receipt\": {\"payload\": {...}, \"signature\": "
+            "\"<hex>\", \"public_key\": \"<hex>\"}, \"pinned_public_key\": \"2152f8…\"})"
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "receipt": {"description": "A receipt object, {receipts:[...]}, or a list."},
-                "pinned_public_key": {"type": "string",
-                                      "description": "Optional hex pubkey the signer must match."},
+                "receipt": {
+                    "description": "A single receipt object {payload, signature, public_key, "
+                                   "payload_hash?}, an envelope {receipts: [...]}, or a JSON "
+                                   "array of receipts (a chain, in sequence order).",
+                },
+                "pinned_public_key": {
+                    "type": "string",
+                    "description": "Optional. 64-char lowercase hex Ed25519 public key the "
+                                   "signer MUST match; verification fails if it does not.",
+                },
             },
             "required": ["receipt"],
         },
@@ -167,16 +186,36 @@ TOOLS = [
     {
         "name": "verify_checkpoint",
         "description": (
-            "Verify an Umbra transparency-log checkpoint is a valid signed tree head — "
-            "proof that the bridge is committed to that exact audit history. Returns "
-            "valid, tree_size, root_hash. Compare (tree_size, root_hash) across "
-            "witnesses to detect a split view. Read-only."
+            "PURPOSE: Verify that an Umbra transparency-log checkpoint is a valid signed "
+            "tree head — cryptographic proof that the bridge has committed to one exact, "
+            "append-only audit history. Returns {valid, tree_size, root_hash, checks, "
+            "summary}.\n"
+            "GUIDELINES: Call this before relying on a checkpoint as an anchor for "
+            "inclusion proofs, or when auditing the bridge's log. To detect a split "
+            "view (the bridge showing different histories to different observers), fetch "
+            "checkpoints from independent witnesses and compare the returned "
+            "(tree_size, root_hash) — they must agree. Pass pinned_public_key to require "
+            "a known operator signer.\n"
+            "LIMITATIONS: Confirms the signature over the tree head only; it does NOT by "
+            "itself prove any specific entry is in the tree (use verify_inclusion for "
+            "that), nor detect a split view on its own (that needs a second witness). "
+            "Offline, read-only.\n"
+            "EXAMPLE: verify_checkpoint({\"checkpoint\": {\"tree_size\": 1024, \"root_hash\": "
+            "\"<hex>\", \"prev_root_hash\": \"<hex>\", \"signature\": \"<hex>\", "
+            "\"public_key\": \"<hex>\", \"key_id\": \"...\", \"sealed_at\": \"...\"}})"
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "checkpoint": {"description": "A checkpoint object or {checkpoint:{...}}."},
-                "pinned_public_key": {"type": "string"},
+                "checkpoint": {
+                    "description": "A checkpoint object (or {checkpoint: {...}}) with fields "
+                                   "tree_size, root_hash, prev_root_hash, signature, "
+                                   "public_key, key_id, sealed_at.",
+                },
+                "pinned_public_key": {
+                    "type": "string",
+                    "description": "Optional 64-char hex Ed25519 key the signer must match.",
+                },
             },
             "required": ["checkpoint"],
         },
@@ -184,16 +223,37 @@ TOOLS = [
     {
         "name": "verify_inclusion",
         "description": (
-            "Verify an RFC-6962 Merkle inclusion proof: that a specific audit entry is "
-            "in the log committed to by a checkpoint. Include the checkpoint in the "
-            "proof to also verify its signature and that the roots match. Read-only."
+            "PURPOSE: Verify an RFC-6962 Merkle inclusion proof — that a specific audit "
+            "entry is provably contained in the log committed to by a checkpoint. If the "
+            "proof carries an enclosed checkpoint, also verifies that checkpoint's "
+            "signature and that its root matches the proof root. Returns {valid, checks, "
+            "summary}.\n"
+            "GUIDELINES: Call this to confirm a particular swap/audit entry is actually "
+            "logged (not just claimed) before trusting that the bridge recorded it. "
+            "Include the checkpoint object in the proof to get end-to-end verification "
+            "(entry → tree → signed head) in one call. Gate on `valid`.\n"
+            "LIMITATIONS: Proves membership in the tree of the given tree_size only; it "
+            "does not prove that tree is the current/canonical one unless the enclosed "
+            "checkpoint is verified and cross-checked against a witness. Offline, "
+            "read-only.\n"
+            "EXAMPLE: verify_inclusion({\"proof\": {\"leaf_data\": \"<entry>\", "
+            "\"leaf_index\": 7, \"tree_size\": 1024, \"root_hash\": \"<hex>\", "
+            "\"proof\": [\"<hex>\", ...], \"checkpoint\": {...}}})"
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "proof": {"description": "An inclusion-proof object (leaf_data, leaf_index, "
-                                         "tree_size, root_hash, proof[], optional checkpoint)."},
-                "pinned_public_key": {"type": "string"},
+                "proof": {
+                    "description": "Inclusion-proof object: leaf_data (string), leaf_index "
+                                   "(int), tree_size (int), root_hash (hex), proof (array of "
+                                   "hex audit-path hashes), and an optional checkpoint object "
+                                   "for end-to-end verification.",
+                },
+                "pinned_public_key": {
+                    "type": "string",
+                    "description": "Optional 64-char hex Ed25519 key the enclosed "
+                                   "checkpoint's signer must match.",
+                },
             },
             "required": ["proof"],
         },
