@@ -424,4 +424,4 @@ See [`backend/.env.example`](backend/.env.example) for the full list. Key ones:
 
 ## License
 
-Private. All rights reserved.
+Source-available under the [Source-Available License v1.0](LICENSE.md). You may view, study, fork, and run it locally for non-commercial evaluation and research. Commercial use, operating it as a service, or redistribution require a separate written license.
