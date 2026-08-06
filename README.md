@@ -14,10 +14,10 @@
   <img src="public/ton.svg" width="40" alt="TON" />
 </p>
 
-<h3 align="center">Privacy-first cross-chain bridge</h3>
+<h3 align="center">Experimental cross-chain swap platform</h3>
 
 <p align="center">
-  Swap XMR, BTC, ETH, TON, SOL and more — trustless MPC threshold signatures, real-time rates, zero KYC.
+  Swap workflows for XMR, BTC, ETH, TON, SOL, and other configured assets, with threshold-signature custody and signed audit records.
 </p>
 
 <p align="center">
@@ -30,24 +30,36 @@
 
 ---
 
-## What is Umbra?
+## Status and scope
 
-Umbra is a non-custodial cross-chain bridge built around **Monero** — the only cryptocurrency with mandatory privacy. It enables trustless swaps between privacy coins and public blockchains using **FROST threshold signatures** (2-of-3 MPC), meaning no single party ever holds your funds.
+Umbra is an experimental cross-chain swap platform centered on **Monero** and
+public-chain assets. The current implementation includes a custodial path with a
+2-of-3 FROST threshold-signing flow. Its custody properties depend on independent
+key-share control, deployment configuration, upstream services, and operational
+controls; threshold signatures alone do not make a service trustless.
 
-What makes Umbra different from every other bridge is the **Proof Layer**: the bridge does not ask to be trusted — it produces cryptographic evidence for everything it does, and ships the tools to check that evidence offline.
+The atomic-swap core is a **pre-audit design** intended for testnet work only. See
+[`docs/ATOMIC_SWAP_SPEC.md`](docs/ATOMIC_SWAP_SPEC.md); do not deploy code derived
+from that design to mainnet without the external review described there.
+
+The **Proof Layer** records selected application events in signed receipts and an
+append-only log, with tools for offline verification. It improves auditability but
+does not prove events the application failed to record or remove the need to trust
+key distribution and independently witnessed checkpoints.
 
 ---
 
 ## The Proof Layer
 
-Bridges are the most-hacked primitive in crypto (Ronin $624M, Multichain $126M, Nomad $190M, Harmony $100M — drained over minutes-to-hours while nothing watched). Umbra's answer is a layer of verifiable accountability that no major bridge ships today:
+Cross-chain services have recurring custody and operational risks. Umbra includes
+the following receipt, log, monitoring, and verification components:
 
 ```
               ┌─────────────────────────────────────────────────────────┐
               │                      PROOF LAYER                        │
               │                                                         │
-   every      │  ┌────────────┐   sealed    ┌──────────────────┐        │
-   order ────►│  │  Signed    │  every 5m   │  Transparency    │        │
+   recorded   │  ┌────────────┐   sealed    ┌──────────────────┐        │
+   events ───►│  │  Signed    │  on schedule│  Transparency    │        │
    event      │  │  Receipts  │────────────►│  Log (Merkle)    │        │
               │  │ Ed25519 +  │             │  RFC 6962 proofs │        │
               │  │ ML-DSA-65  │             └────────┬─────────┘        │
@@ -64,9 +76,14 @@ Bridges are the most-hacked primitive in crypto (Ronin $624M, Multichain $126M, 
                           HTML, or pure-stdlib Python CLI — zero trust
 ```
 
-### 1. Signed swap receipts — a flight recorder for every order
+### 1. Signed swap receipts
 
-Every lifecycle event of every order (`order_created`, `status_confirming`, `status_completed`, …) produces a receipt signed with the bridge's **Ed25519** key over canonical JSON. Receipts for one order are **hash-chained** (each embeds the SHA-256 of the previous receipt), so a user holding their final receipt can detect any retroactive edit to their order's history. Receipts carry a *hash* of the destination address, not the address — the proof layer never becomes a metadata leak.
+For lifecycle events recorded by the application (`order_created`,
+`status_confirming`, `status_completed`, and others), the service produces a receipt
+signed with its **Ed25519** key over canonical JSON. Receipts for one order are
+hash-chained, allowing a verifier with the chain and a trusted public key to detect
+edits or gaps. The receipt schema uses a hash of the destination address rather than
+the address itself, reducing the data exposed by this layer.
 
 ```bash
 curl -s https://your-bridge/v1/proof/receipt/br_ab12cd34ef56 | \
@@ -75,20 +92,26 @@ curl -s https://your-bridge/v1/proof/receipt/br_ab12cd34ef56 | \
 
 ### 2. Post-quantum hybrid signatures
 
-Receipts are archival evidence with a multi-decade shelf life. Alongside Ed25519, every receipt and checkpoint is signed with **ML-DSA-65 (FIPS 204, CRYSTALS-Dilithium)** over the same canonical bytes. Ed25519 stays the cheap, universally verifiable online layer; the ML-DSA signature keeps the archive forgery-proof against a future quantum adversary. Forging history requires breaking **both** schemes.
+The implementation can sign the same canonical receipt and checkpoint bytes with
+**ML-DSA-65 (FIPS 204)** alongside Ed25519. Long-term security still depends on
+correct implementation, protected keys, verifier support, and the continuing
+security of both schemes.
 
 ### 3. Transparency log — Certificate Transparency for a bridge
 
-The audit hash-chain is sealed every few minutes into a **signed Merkle checkpoint** (the RFC 6962 construction used by Certificate Transparency, validated against the CT known-answer vectors). Anyone can then demand:
+The audit hash-chain is sealed on a configured schedule into a **signed Merkle
+checkpoint** using an RFC 6962 construction. The API exposes:
 
 - **Inclusion proofs** — `GET /v1/proof/inclusion/{audit_id}` proves a specific audit entry is committed to by a checkpoint (log₂ n hashes, verifiable offline).
-- **Consistency proofs** — `GET /v1/proof/consistency?old_size=&new_size=` proves a newer checkpoint is a pure append-only extension of an older one. **History cannot be rewritten without detection.**
+- **Consistency proofs** — `GET /v1/proof/consistency?old_size=&new_size=` lets a verifier test whether a newer checkpoint extends an older retained checkpoint.
 
-Mirror `GET /v1/proof/checkpoint/latest` on a cron job and you become an external witness the operator cannot silently contradict.
+An external monitor can retain `GET /v1/proof/checkpoint/latest` responses and compare
+later checkpoints. Detection of split views requires checkpoints to be shared or
+witnessed outside the operator's control.
 
 ### 4. The Sentinel — a circuit breaker between the bridge and catastrophe
 
-Five guards run every 30 seconds:
+Five configurable checks make up the Sentinel monitor:
 
 | Guard | Trips when | Would have caught |
 |-------|-----------|-------------------|
@@ -98,11 +121,17 @@ Five guards run every 30 seconds:
 | Rate divergence | independent price sources disagree > 5% | oracle poisoning |
 | **ML anomaly** (optional) | Isolation Forest flags order-flow combinations vs the 7-day baseline | drain signatures no fixed threshold expresses |
 
-A trip pauses **new intake only** — in-flight swaps keep settling, so a false positive costs minutes of intake, not user funds. The sentinel never auto-resumes: a human must investigate and resume with a note. Every trip, pause, and resume lands in the tamper-evident audit chain and the public `GET /v1/proof/status` endpoint — **the bridge cannot be paused or unpaused in secret**. The ML guard fails open: a risk-engine outage never blocks the bridge.
+The intended trip behavior pauses new intake while allowing in-flight settlement. A
+manual resume requires a note. The application records trip, pause, and resume events
+in its audit chain and exposes status at `GET /v1/proof/status`; observers can verify
+only the events and checkpoints they receive. The optional anomaly check fails open,
+so an outage in that component does not itself stop intake.
 
 ### 5. Signed, freshness-bound warrant canary
 
-`GET /v1/proof/canary` returns a signed statement embedding the current time **and the latest checkpoint root** — it cannot be replayed against a rewound log. A canary that stops updating is itself a signal.
+`GET /v1/proof/canary` returns a signed statement containing a timestamp and the latest
+checkpoint root. Verifiers must enforce a freshness window and retain or compare
+checkpoints for the canary to provide useful rewind detection.
 
 ### Verify without trusting anything
 
@@ -114,7 +143,9 @@ Three independent verifiers ship in this repo, all validated against RFC 8032 te
 | [`verifier/umbra-verify.html`](verifier/umbra-verify.html) | **none** — save the file, open from `file://`, zero network requests, pure-BigInt Ed25519 with an on-load self-test |
 | [`tools/verify_receipt.py`](tools/verify_receipt.py) | **none** — pure Python stdlib, no dependencies; `receipts`/`checkpoint`/`inclusion` subcommands |
 
-Pin the bridge's public key (`GET /v1/proof/key`) out-of-band once; from then on, every receipt either verifies or it doesn't. Telegram users get the same via `/receipt <order_id>` and `/trust`.
+Pin the service's public key (`GET /v1/proof/key`) through a channel outside the
+deployment before relying on receipt verification. Telegram exposes the same flow via
+`/receipt <order_id>` and `/trust`.
 
 The full wire-format specification — exact canonical forms, algorithms, threat model, and test vectors for building your own verifier — lives in [`docs/PROOF_LAYER.md`](docs/PROOF_LAYER.md).
 
@@ -166,7 +197,8 @@ The full wire-format specification — exact canonical forms, algorithms, threat
      +----------------+  +-----------------+
 ```
 
-**Single Rust binary** replaces what would typically be 3+ Python processes. The backend handles HTTP API, WebSocket streaming, background task scheduling, and blockchain RPC — all in one process using `tokio`.
+The Rust backend handles the HTTP API, WebSocket streaming, background scheduling,
+and blockchain RPC in one `tokio` process.
 
 ---
 
@@ -181,7 +213,7 @@ Full conversational bridge — `/bridge`, `/rate`, `/history`, `/status`. Works 
 ### 3. Enterprise Website
 Desktop dashboard with portfolio tracking, analytics charts, order history, public transaction explorer, admin panel — plus `/verify` (client-side receipt verification) and `/transparency` (live sentinel status, checkpoints, canary).
 
-All three share the same Rust API and real-time WebSocket feed.
+All three clients use the same Rust API and WebSocket feed.
 
 ---
 
@@ -281,15 +313,17 @@ umbra/
                              user notified via WebSocket + Telegram
 ```
 
-Every step from 4 onward emits a hash-chained, dual-signed receipt the user can verify offline — the order's history is provable end to end.
+From step 4 onward, the application is designed to emit hash-chained, dual-signed
+receipts that the user can verify offline. This verifies the recorded history, not
+off-log events or the correctness of upstream settlement.
 
 ---
 
 ## Security
 
-- **FROST 2-of-3 MPC** — No single party can sign transactions
+- **FROST 2-of-3 signing flow** — Requires two configured key shares; security depends on independent share custody and deployment controls
 - **Proof Layer** — Signed receipts (Ed25519 + ML-DSA-65), RFC 6962 transparency log, sentinel circuit breaker, signed canary (see above)
-- **Hash-chain audit log** — Every state change is tamper-evident (SHA-256 chain), sealed into signed Merkle checkpoints
+- **Hash-chain audit log** — Recorded state changes are chained and sealed into signed Merkle checkpoints
 - **Telegram WebApp auth** — HMAC-SHA-256 verification of `initData`
 - **Rate limiting** — Redis sliding window (60/min API, 10/min orders, 5 WS/IP)
 - **Security headers** — CSP, HSTS, X-Frame-Options, X-Content-Type-Options

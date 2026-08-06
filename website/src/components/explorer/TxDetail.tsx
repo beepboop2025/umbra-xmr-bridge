@@ -128,7 +128,7 @@ export function TxDetail({ order }: TxDetailProps) {
         <TrustStrip
           items={[
             { label: meta.label.toLowerCase(), dot: `var(--tk-${meta.tone})` },
-            { label: 'custody', value: 'non-custodial' },
+            { label: 'custody', value: 'threshold 2-of-3' },
             { label: 'receipts', value: 'ed25519 + ml-dsa' },
             {
               label: (
@@ -183,10 +183,10 @@ export function TxDetail({ order }: TxDetailProps) {
           <div className="flex gap-3">
             <Shield size={20} className="shrink-0 text-ok" />
             <div>
-              <p className="text-sm font-semibold text-ink-0">Privacy preserved</p>
+              <p className="text-sm font-semibold text-ink-0">Public-record scope</p>
               <p className="mt-1 text-xs leading-relaxed text-ink-2">
-                Processed through a non-custodial bridge with no KYC. Monero&apos;s ring signatures conceal
-                the sender, and this public record never exposes deposit or destination addresses.
+                This view omits raw deposit and destination addresses by design. Public-chain
+                settlement remains observable and other metadata may still permit correlation.
               </p>
             </div>
           </div>

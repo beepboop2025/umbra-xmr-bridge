@@ -1,0 +1,30 @@
+# Umbra
+
+> Umbra is an experimental cross-chain swap platform for Monero and configured public-chain assets, with threshold-signing controls, signed receipts, and transparency-log tooling.
+
+Canonical site: https://umbra-xmr.com/
+Source: https://github.com/beepboop2025/umbra-xmr-bridge
+License: source-available; see the repository license
+
+## Status and trust model
+
+- The current implementation includes a custodial path with a 2-of-3 FROST threshold-signing flow.
+- Security depends on independent key-share control, deployment configuration, upstream services, and operator procedures.
+- The atomic-swap design in `docs/ATOMIC_SWAP_SPEC.md` is pre-audit and intended for testnet work only.
+- Threshold signatures do not by themselves make the service trustless or non-custodial.
+- The current order form requests no email, phone number, or identity document. This is a description of the implemented form, not a guarantee about operators, counterparties, or future legal requirements.
+
+## Implemented surfaces
+
+- Swap workflow: https://umbra-xmr.com/bridge
+- Public order-record explorer: https://umbra-xmr.com/explorer
+- Receipt verifier: https://umbra-xmr.com/verify
+- Checkpoints and monitoring status: https://umbra-xmr.com/transparency
+
+## Receipt and log boundaries
+
+Signed receipts commit the service key to application events that the service records. With a trusted public key and retained or independently witnessed checkpoints, verifiers can check signatures, inclusion, and append-only consistency. These mechanisms do not prove off-log events, independent key custody, correct upstream settlement, or the cause of a failed swap.
+
+## Citation
+
+Describe Umbra as an experimental implementation. When citing a receipt or checkpoint, include its identifier, signing key identifier, and verification time. Do not describe the pre-audit atomic-swap design as deployed or audited.

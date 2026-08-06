@@ -31,10 +31,10 @@ const MAP_EDGES: MapEdge[] = RING.map((_, i) => [0, i + 1, 0.4 + (i % 3) * 0.2] 
 const compact = (v: number) => Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(v);
 
 const VALUE = [
-  { icon: Lock, title: 'MPC threshold custody', body: 'No single party ever holds funds. Withdrawals require t-of-n signatures. The circuit breaker halts intake the moment aggregate flow looks wrong.', tone: 'ok' as const },
-  { icon: Eye, title: 'No KYC, ever', body: 'No email, no phone, no documents. The deposit receipt records a hash of your address, never the address itself.', tone: 'ok' as const },
-  { icon: Shield, title: 'Native assets only', body: 'You receive real BTC on Bitcoin, real ETH on Ethereum. No wrapped IOUs, no bridge tokens to unwind.', tone: 'ok' as const },
-  { icon: Zap, title: 'Non-custodial & provable', body: 'Every order emits an Ed25519 + post-quantum signed receipt you can verify offline against a published key.', tone: 'watch' as const },
+  { icon: Lock, title: 'Threshold-signing controls', body: 'The withdrawal path requires configured t-of-n key shares. Effective separation depends on how operators deploy and control those shares.', tone: 'ok' as const },
+  { icon: Eye, title: 'Data-minimized order flow', body: 'The current form requests no email, phone number, or identity document. Receipt records use an address hash, but public-chain activity may still be correlated.', tone: 'ok' as const },
+  { icon: Shield, title: 'Native settlement routes', body: 'Configured routes target assets on their native networks rather than issuing a separate Umbra bridge token.', tone: 'ok' as const },
+  { icon: Zap, title: 'Signed application records', body: 'Recorded order events can produce Ed25519 and ML-DSA receipts for offline verification against a pinned key.', tone: 'watch' as const },
 ];
 
 export default function HomePage() {
@@ -73,11 +73,11 @@ export default function HomePage() {
           <h1 className="text-4xl sm:text-5xl lg:text-[3.4rem] font-extrabold tracking-tight leading-[1.04] text-ink-0">
             Move Monero to any chain.
             <br />
-            <span className="text-live-500">Private. Provable. Non-custodial.</span>
+            <span className="text-live-500">Threshold custody. Signed records.</span>
           </h1>
           <p className="mt-5 text-lg text-ink-2 max-w-xl">
-            Umbra bridges XMR to BTC, ETH, TON, SOL and more — with threshold custody, a
-            fail-loud circuit breaker, and a signed receipt for every swap. No KYC. No account.
+            Umbra implements swap workflows for XMR, BTC, ETH, TON, SOL, and other
+            configured assets, with threshold-signing controls, monitoring, and verifiable receipts.
           </p>
 
           {/* live-rate decision card */}

@@ -101,7 +101,7 @@ export function BridgeForm() {
         chip={<Chip tone="ok">● live</Chip>}
       >
         <p className="text-[11px] font-mono text-ink-4 -mt-2 mb-4">
-          as of now · non-custodial · quote locks 30 min on order
+          as of now · threshold custody · quote locks 30 min on order
         </p>
 
         {/* YOU SEND */}
@@ -213,7 +213,7 @@ export function BridgeForm() {
         </button>
 
         <p className="text-center text-[11px] font-mono text-ink-4 mt-3">
-          no account · no KYC · signed receipt on completion
+          no account fields · signed receipt on recorded completion
         </p>
       </DecisionCard>
 

@@ -1,11 +1,10 @@
 //! Signed swap receipts ("attestations").
 //!
-//! Every order lifecycle event produces an Ed25519-signed receipt that anyone
-//! can verify offline against the bridge's published public key — no trust in
-//! the API, the website, or TLS required. Receipts for one order are chained
-//! together (each embeds the SHA-256 of the previous receipt's payload), so a
-//! user holding the final receipt can detect any retroactive edit to their
-//! order's history.
+//! Recorded order lifecycle events produce Ed25519-signed receipts that a verifier
+//! can check offline against an independently pinned public key. Receipts for
+//! one order are chained together (each embeds the SHA-256 of the previous
+//! receipt's payload), so a verifier holding the full chain can detect edits
+//! or gaps relative to that chain.
 //!
 //! # Canonical form
 //!

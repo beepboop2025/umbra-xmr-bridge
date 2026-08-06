@@ -75,7 +75,7 @@ export default function ExplorerPage() {
         items={[
           { label: 'live', value: `${stats?.supported_chains ?? 8} chains`, dot: 'var(--tk-ok)' },
           { label: 'as of now' },
-          { label: 'custody', value: 'non-custodial' },
+          { label: 'custody', value: 'threshold 2-of-3' },
           { label: 'receipts', value: 'ed25519 + ml-dsa' },
           {
             label: (
@@ -92,8 +92,8 @@ export default function ExplorerPage() {
         <div className="mt-8">
           <h1 className="text-3xl font-extrabold tracking-tight text-ink-0">Bridge Explorer</h1>
           <p className="mt-2 max-w-2xl text-ink-2">
-            A live stream of every bridge order. Full transparency, zero deanonymisation — amounts and
-            routes are public, addresses never are.
+            A stream of order records returned by the public API. It shows amounts and routes while
+            omitting raw deposit and destination addresses; public-chain metadata may still permit correlation.
           </p>
         </div>
       </Reveal>
@@ -148,7 +148,7 @@ export default function ExplorerPage() {
       {/* Footer note */}
       <Reveal delay={0.12}>
         <div className="mt-8 text-center text-xs leading-relaxed text-ink-4">
-          <p>All orders are processed non-custodially; Monero transactions are private by default.</p>
+          <p>The current order path uses threshold custody. Monero provides protocol-level privacy, while public-chain settlement remains observable.</p>
           <p className="mt-1">
             Source deposits and destination payouts are verifiable on their respective chain explorers.
           </p>
