@@ -21,7 +21,7 @@ const footerLinks = {
   Legal: [
     { label: 'Terms of Service', href: '#' },
     { label: 'Privacy Policy', href: '#' },
-    { label: 'No KYC Policy', href: '#' },
+    { label: 'Data practices', href: '#' },
   ],
 };
 
@@ -47,7 +47,7 @@ export function Footer() {
               <span className="text-lg font-extrabold tracking-[0.16em] text-ink-0">UMBRA</span>
             </div>
             <p className="text-sm text-gray-400 max-w-xs mb-4">
-              Private, non-custodial multi-chain bridge for Monero. No KYC, no registration, just swap.
+              Experimental multi-chain swap workflows for Monero, with threshold-signing controls and signed records.
             </p>
             <div className="flex items-center gap-3">
               {socialLinks.map((social) => {

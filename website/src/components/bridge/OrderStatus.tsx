@@ -18,7 +18,7 @@ type Tone = 'ok' | 'watch' | 'warning' | 'critical' | 'stale';
 const STEPS: { key: OrderStatusType; label: string; desc: string }[] = [
   { key: 'awaiting_deposit', label: 'Awaiting deposit', desc: 'Send the exact amount to the deposit address below.' },
   { key: 'confirming', label: 'Deposit confirming', desc: 'Deposit detected — waiting for network confirmations.' },
-  { key: 'exchanging', label: 'Threshold signing', desc: 'MPC 2-of-3 co-signs the withdrawal. No single party holds funds.' },
+  { key: 'exchanging', label: 'Threshold signing', desc: 'The configured 2-of-3 signing flow authorizes the withdrawal.' },
   { key: 'sending', label: 'Sending native assets', desc: 'Broadcasting real assets to your destination address.' },
   { key: 'completed', label: 'Completed', desc: 'Assets delivered. An ed25519 + ml-dsa receipt was issued.' },
 ];

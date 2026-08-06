@@ -21,7 +21,7 @@ WELCOME_TEXT = (
     "Swap Monero (XMR) to and from:\n"
     "BTC \u00b7 ETH \u00b7 TON \u00b7 SOL \u00b7 ARB \u00b7 BASE \u00b7 USDC \u00b7 USDT\n"
     "\n"
-    "Fast, private, non-custodial.\n"
+    "Threshold-custody swap workflow with signed receipts.\n"
 )
 
 

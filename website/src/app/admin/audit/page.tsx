@@ -225,8 +225,8 @@ export default function AuditLogPage() {
             <div>
               <p className="text-sm text-gray-300">Tamper-evident audit trail</p>
               <p className="text-xs text-gray-500 mt-1">
-                All audit entries are cryptographically chained. Each entry includes a hash of the previous entry
-                to ensure the log cannot be modified without detection.
+                Recorded audit entries include the previous entry&apos;s hash. Comparing the chain with retained signed
+                checkpoints can expose later edits or gaps.
               </p>
             </div>
           </div>

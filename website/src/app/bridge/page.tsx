@@ -34,7 +34,7 @@ export default function BridgePage() {
       <Reveal delay={0.05} className="mt-7">
         <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-ink-0">Bridge</h1>
         <p className="text-ink-2 mt-1.5 text-sm sm:text-[15px] max-w-2xl">
-          Swap Monero to native assets on any chain. One decision, one hero number, a signed receipt for every order.
+          Configure a Monero swap route, review the quoted amount, and retain the signed receipt produced for recorded order events.
         </p>
       </Reveal>
 

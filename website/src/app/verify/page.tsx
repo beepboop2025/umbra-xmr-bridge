@@ -374,7 +374,7 @@ export default function VerifyPage() {
                 style={{ background: '#020202' }}
               />
               <p className="text-[11px] text-ink-3 mt-1">
-                Fully offline: pasted JSON never leaves your browser.
+                Verification runs in this browser; this component does not submit the pasted JSON.
               </p>
             </div>
           )}

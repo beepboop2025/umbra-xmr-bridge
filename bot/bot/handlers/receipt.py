@@ -1,6 +1,6 @@
 """/receipt and /trust handlers -- signed proof receipts and trust status.
 
-Every order lifecycle event produces an Ed25519-signed receipt served by the
+Recorded order lifecycle events produce Ed25519-signed receipts served by the
 backend proof layer (GET /v1/proof/receipt/{order_id}).  This handler shows a
 human-readable summary and performs two local checks:
 
@@ -219,7 +219,7 @@ async def cmd_receipt(message: Message) -> None:
 # ---------------------------------------------------------------------------
 def format_trust(status: dict[str, Any] | None, canary: dict[str, Any] | None) -> str:
     """Return a rich text summary of the bridge's public trust signals."""
-    lines = ["\U0001f6e1\ufe0f <b>Bridge Trust Status</b>", ""]
+    lines = ["\U0001f6e1\ufe0f <b>Bridge Proof Status</b>", ""]
 
     if status is None:
         lines.append("\u26a0\ufe0f Sentinel status unavailable.")

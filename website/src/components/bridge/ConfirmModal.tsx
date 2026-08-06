@@ -127,7 +127,7 @@ export function ConfirmModal({
 
       <p className="mt-3 flex items-center gap-1.5 text-[11px] font-mono text-ink-4">
         <ShieldCheck size={12} className="text-live-500" />
-        non-custodial · MPC 2-of-3 · ed25519 + ml-dsa receipt issued on completion
+        threshold custody · MPC 2-of-3 · signed receipt on recorded completion
       </p>
 
       {/* Actions */}

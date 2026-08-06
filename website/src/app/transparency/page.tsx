@@ -540,7 +540,7 @@ function TransparencyLog() {
         </div>
       )}
       <p className="text-[11px] text-ink-4 mt-3 font-mono">
-        each root extends the previous — a rewritten history cannot
+        retain checkpoints and verify consistency proofs to test append-only history
       </p>
     </Panel>
   );
@@ -554,17 +554,17 @@ const explainers = [
   {
     icon: GitCommitHorizontal,
     title: 'What is a checkpoint?',
-    body: 'Every receipt the bridge issues is appended to a Merkle tree. A checkpoint is a signed snapshot of that tree: its size, its root hash, and the previous root. Because each checkpoint commits to the one before it, the bridge cannot quietly rewrite or delete history. Any fork produces two signed checkpoints that contradict each other, and either one is proof of misbehavior.',
+    body: 'Recorded receipts are appended to a Merkle tree. A checkpoint is a signed snapshot containing the tree size and root hash. A verifier that retains or independently witnesses checkpoints can request consistency proofs and detect contradictory signed views.',
   },
   {
     icon: Eye,
     title: 'What does the sentinel watch?',
-    body: 'The drain-guard sentinel continuously compares hot-wallet outflows, order volume, and receipt issuance against hard limits. If withdrawals outpace what signed receipts can account for, it halts order intake automatically and records why. The pause state and every trip event are published here, not hidden in an internal dashboard.',
+    body: 'The Sentinel compares configured hot-wallet outflow, order-volume, and receipt-issuance metrics with thresholds. Its intended response is to pause new intake and record the trip reason. This page reports the status returned by the service; an unreachable endpoint leaves that status unconfirmed.',
   },
   {
     icon: ReceiptText,
     title: 'Why do receipts matter?',
-    body: 'A bridge that says "trust us" is asking you to hope. A signed receipt is different: it is a cryptographic commitment to the exact terms of your swap, chained to every other receipt for the order. If the bridge later disputes what it owed you, the receipt is portable proof anyone can verify without trusting this website.',
+    body: 'A signed receipt commits the service key to the recorded terms of a swap. With a trusted public key and the relevant checkpoints, it can be verified outside this website. It does not by itself prove off-log events, key custody, or correct settlement.',
   },
 ];
 
@@ -619,9 +619,9 @@ export default function TransparencyPage() {
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-ink-0">Transparency</h1>
         </div>
         <p className="text-ink-2 max-w-2xl leading-relaxed">
-          The bridge&apos;s live proof layer: sentinel status, signed checkpoints, the public key,
-          and the warrant canary. Every signature shown as verified is checked in your browser,
-          never taken on faith.
+          Current proof-layer data: Sentinel status, signed checkpoints, the public key,
+          and the warrant canary. Signature checks shown by this page run in the browser;
+          key identity and checkpoint witnessing remain separate trust decisions.
         </p>
       </Reveal>
 
