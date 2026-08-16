@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -42,5 +42,27 @@ describe('MCP registry release contract', () => {
     expect(imageJob).not.toContain('id-token: write');
     expect(registryJob).toContain('id-token: write');
     expect(registryJob).not.toContain('packages: write');
+  });
+
+  it('pins every third-party workflow action to an immutable commit', () => {
+    const workflowDirectory = resolve(process.cwd(), '.github/workflows');
+    const workflowFiles = readdirSync(workflowDirectory).filter((fileName) =>
+      /\.ya?ml$/.test(fileName),
+    );
+    let actionCount = 0;
+
+    for (const fileName of workflowFiles) {
+      const workflow = read(`.github/workflows/${fileName}`);
+      const actionRefs = workflow.matchAll(
+        /uses:\s+([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)@([^\s#]+)/g,
+      );
+
+      for (const [, action, ref] of actionRefs) {
+        actionCount += 1;
+        expect(ref, `${fileName}: ${action}@${ref}`).toMatch(/^[0-9a-f]{40}$/);
+      }
+    }
+
+    expect(actionCount).toBeGreaterThan(0);
   });
 });
