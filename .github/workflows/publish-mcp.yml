@@ -1,16 +1,7 @@
 name: publish-mcp
 
-# Build the Umbra Proof-Layer MCP server image (read-only verification only),
-# push it to GHCR, and publish the listing to the official MCP registry
-# (io.github.beepboop2025/umbra-proof). Autonomous: GHCR push uses the
-# workflow's GITHUB_TOKEN, registry publish uses GitHub OIDC.
-#
-# One-time manual step after the FIRST run: make the GHCR package public
-# (GitHub → your packages → umbra-proof-mcp → Package settings → Change
-# visibility → Public). The registry only accepts public images, and GHCR
-# packages are private on first push. This click is also the deliberate go/no-go
-# for listing an Umbra-branded server publicly.
-
+# Build the read-only Umbra proof verifier, publish its versioned OCI image,
+# then publish the matching immutable record to the official MCP registry.
 on:
   workflow_dispatch:
   release:
@@ -18,33 +9,60 @@ on:
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
+
+concurrency:
+  group: publish-mcp-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
-  IMAGE: ghcr.io/beepboop2025/umbra-proof-mcp:v0.1.1
+  IMAGE: ghcr.io/beepboop2025/umbra-proof-mcp:v0.1.2
 
 jobs:
-  publish:
+  image:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Log in to GHCR
-        run: echo "${{ github.token }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Build and push the MCP server image
+      - name: Build and push the versioned MCP server image
         run: |
-          docker build -f Dockerfile.mcp -t "$IMAGE" .
+          docker build --file Dockerfile.mcp --tag "$IMAGE" .
           docker push "$IMAGE"
 
-      - name: Install mcp-publisher
-        run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
-            | tar xz mcp-publisher && sudo mv mcp-publisher /usr/local/bin/
+  registry:
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      MCP_PUBLISHER_VERSION: "1.8.1"
+      MCP_PUBLISHER_SHA256: "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Publish the listing to the MCP registry
+      - name: Install the pinned MCP publisher
         run: |
-          mcp-publisher login github-oidc
-          mcp-publisher publish
+          curl --fail --silent --show-error --location \
+            --output mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum --check --strict
+          tar --extract --gzip --file mcp-publisher.tar.gz mcp-publisher
+          chmod 0755 mcp-publisher
+
+      - name: Validate and publish the registry record
+        run: |
+          ./mcp-publisher validate
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish

@@ -66,7 +66,7 @@ pub async fn create_test_order(
 /// Transition an order to a specific status.
 pub async fn set_order_status(pool: &PgPool, order_id: &str, status: &str, step: i16) {
     sqlx::query(
-        "UPDATE bridge_orders SET status = $1::text, step = $2, updated_at = $3 WHERE order_id = $4",
+        "UPDATE bridge_orders SET status = $1::order_status, step = $2, updated_at = $3 WHERE order_id = $4",
     )
     .bind(status)
     .bind(step)

@@ -99,7 +99,7 @@ async fn user_velocity_count(pool: PgPool) {
     // Create 5 orders for this user
     for _ in 0..5 {
         let id = Uuid::new_v4();
-        let order_id = format!("vel-{}", Uuid::new_v4());
+        let order_id = format!("vel_{}", &Uuid::new_v4().simple().to_string()[..12]);
         sqlx::query(
             r#"
             INSERT INTO bridge_orders (
