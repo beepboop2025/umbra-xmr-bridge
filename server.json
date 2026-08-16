@@ -1,16 +1,16 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.beepboop2025/umbra-proof",
   "description": "Verify Umbra bridge accountability proofs (signed receipts, checkpoints, Merkle inclusion).",
   "repository": {
     "url": "https://github.com/beepboop2025/umbra-xmr-bridge",
     "source": "github"
   },
-  "version": "0.1.1",
+  "version": "0.1.2",
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/beepboop2025/umbra-proof-mcp:v0.1.1",
+      "identifier": "ghcr.io/beepboop2025/umbra-proof-mcp:v0.1.2",
       "transport": {
         "type": "stdio"
       }
